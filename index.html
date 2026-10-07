@@ -3316,6 +3316,17 @@ function lessonsAt(day, period, view) {
 // ============================================
 // BUILD SUMMARY VIEW
 // ============================================
+// Day labels are intentionally limited to the four classes where the weekly
+// period-based summary needs the extra day context. Do not alter scheduling.
+const SUMMARY_DAY_LABEL_CLASSES = new Set(["9th-A", "9th-B", "10th-A", "10th-B"]);
+function summaryNeedsDayLabel(klass) {
+  const k = String(klass || "").trim().toLowerCase();
+  return ["9th-a", "9th-b", "10th-a", "10th-b"].includes(k);
+}
+function dayAbbr(day) {
+  return ({Monday:"Mon", Tuesday:"Tue", Wednesday:"Wed", Thursday:"Thu", Friday:"Fri", Saturday:"Sat", Sunday:"Sun"})[day] || day || "";
+}
+
 function buildSummaryView() {
   if (!schedule || !schedule.grid) return null;
   
@@ -3324,7 +3335,7 @@ function buildSummaryView() {
   
   const title = document.createElement("div");
   title.className = "timetable-title";
-  title.innerHTML = `<span class="avatar">📊</span> Summary View <span style="font-size:0.65rem;font-weight:500;color:var(--text-light);margin-left:8px;">(Weekly by Period — day shown on each lesson: Mon, Tue, Wed...)</span>`;
+  title.innerHTML = `<span class="avatar">📊</span> Summary View`;
   container.appendChild(title);
   
   const scroll = document.createElement("div");
@@ -3381,7 +3392,7 @@ function buildSummaryView() {
         
         const uniqueLessons = new Map();
         foundLessons.forEach(l => {
-          const key = `${l.teacher.trim().toLowerCase()}|||${l.subject.trim().toLowerCase()}`;
+          const key = summaryNeedsDayLabel(klass) ? `${l.day}|${l.teacher.trim().toLowerCase()}|||${l.subject.trim().toLowerCase()}` : `${l.teacher.trim().toLowerCase()}|||${l.subject.trim().toLowerCase()}`;
           if (!uniqueLessons.has(key)) {
             uniqueLessons.set(key, l);
           }
@@ -3410,7 +3421,7 @@ function buildSummaryView() {
               align-items: center;
               width: 100%;
             ">
-              <div style="font-weight:700;color:var(--accent);font-size:0.58rem;line-height:1.1;margin-bottom:1px;">${esc(String(lesson.day || '').slice(0,3))}</div>
+              ${summaryNeedsDayLabel(klass) ? `<div style="font-weight:700;color:var(--accent);font-size:0.58rem;line-height:1.1;margin-bottom:1px;">${esc(dayAbbr(lesson.day))}</div>` : ''}
               <div style="font-weight:600;color:var(--text);font-size:0.65rem;">${esc(lesson.teacher)}</div>
               <div style="font-weight:500;color:var(--text-secondary);font-size:0.6rem;background:${color}20;padding:1px 6px;border-radius:3px;display:inline-block;">${esc(lesson.subject)}</div>
               ${isLocked ? '<span style="font-size:0.5rem;color:var(--accent);">🔒</span>' : ''}
@@ -5209,7 +5220,7 @@ function exportSummaryPDF(doc) {
     
     const uniqueMap = new Map();
     classLessons.forEach(l => {
-      const key = `${l.teacher}|||${l.subject}`;
+      const key = summaryNeedsDayLabel(klass) ? `${l.day}|${l.teacher}|||${l.subject}` : `${l.teacher}|||${l.subject}`;
       if (!uniqueMap.has(key)) uniqueMap.set(key, l);
     });
     const uniqueLessons = Array.from(uniqueMap.values());
@@ -5991,7 +6002,7 @@ document.getElementById("print-summary-btn")?.addEventListener("click", function
         } else {
           const start = formatTime(slot.startHour, slot.startMin);
           const end = formatTime(slot.endHour, slot.endMin);
-          headers.push(`P${slot.period}\nWeekly\n${start}-${end}`);
+          headers.push(`P${slot.period}\n${start}-${end}`);
         }
       }
       
@@ -6033,7 +6044,7 @@ document.getElementById("print-summary-btn")?.addEventListener("click", function
           } else {
             const uniqueMap = new Map();
             foundLessons.forEach(l => {
-              const key = `${l.teacher}|||${l.subject}`;
+              const key = summaryNeedsDayLabel(klass) ? `${l.day}|${l.teacher}|||${l.subject}` : `${l.teacher}|||${l.subject}`;
               if (!uniqueMap.has(key)) {
                 uniqueMap.set(key, l);
               }
@@ -6041,10 +6052,9 @@ document.getElementById("print-summary-btn")?.addEventListener("click", function
             const uniqueLessons = Array.from(uniqueMap.values());
             
             let cellContent = uniqueLessons.map(l => {
-              // Always show the day abbreviation in printed Summary output so the
-              // reader can immediately tell which day this teacher is assigned.
-              const dayAbbr = ({ Monday:'Mon', Tuesday:'Tue', Wednesday:'Wed', Thursday:'Thu', Friday:'Fri', Saturday:'Sat', Sunday:'Sun' })[l.day] || l.day || '';
-              return `${l.teacher} (${l.subject}) [${dayAbbr}]`;
+              return summaryNeedsDayLabel(klass)
+                ? `${l.teacher} (${l.subject}) [${dayAbbr(l.day)}]`
+                : `${l.teacher} (${l.subject})`;
             }).join("\n");
             row.push(cellContent);
           }
@@ -6746,7 +6756,7 @@ document.getElementById("print-a4-btn")?.addEventListener("click", function() {
         } else {
           const start = formatTime(slot.startHour, slot.startMin);
           const end = formatTime(slot.endHour, slot.endMin);
-          headers.push(`P${slot.period}\nWeekly\n${start}-${end}`);
+          headers.push(`P${slot.period}\n${start}-${end}`);
         }
       }
 
@@ -6792,9 +6802,9 @@ document.getElementById("print-a4-btn")?.addEventListener("click", function() {
 
             const uniqueLessons = Array.from(uniqueMap.values());
             const cellContent = uniqueLessons.map(l => {
-              // Always show the day abbreviation in the A4 printed Summary.
-              const dayAbbr = ({ Monday:'Mon', Tuesday:'Tue', Wednesday:'Wed', Thursday:'Thu', Friday:'Fri', Saturday:'Sat', Sunday:'Sun' })[l.day] || l.day || '';
-              return `${l.teacher} (${l.subject}) [${dayAbbr}]`;
+              return summaryNeedsDayLabel(klass)
+                ? `${l.teacher} (${l.subject}) [${dayAbbr(l.day)}]`
+                : `${l.teacher} (${l.subject})`;
             }).join("\n");
             row.push(cellContent);
           }
