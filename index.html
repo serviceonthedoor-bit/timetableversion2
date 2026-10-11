@@ -10,6 +10,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <style>
 :root {
   --bg: #f8f9fa;
@@ -1569,6 +1570,24 @@ body.v2-app .mobile-nav{z-index:1050}
 @media(max-width:640px){.v2-stats{grid-template-columns:1fr 1fr}.v2-commandbar{align-items:flex-start;flex-direction:column}.v2-commandbar .v2-actions{width:100%}.v2-commandbar .v2-action{flex:1}body.v2-app .main-layout{padding:12px 10px 28px!important}body.v2-app .hero h1{font-size:25px!important}.v2-stat .v{font-size:18px}}
 </style>
 
+<style id="daywise-view-css">
+.dw-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px}
+.dw-tab{padding:6px 14px;border-radius:16px;border:1px solid var(--border);background:var(--bg);color:var(--text-secondary);font-family:inherit;font-size:.75rem;font-weight:600;cursor:pointer}
+.dw-tab:hover:not(.active){background:var(--bg-hover)}
+.dw-tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.dw-day-title{font-weight:800;font-size:.95rem;color:var(--accent);margin:14px 0 6px}
+.dw-legend{font-size:.7rem;color:var(--text-muted);margin:0 0 8px}
+table.dw-table{width:100%;border-collapse:collapse;font-size:.7rem}
+table.dw-table th{background:var(--table-header);color:var(--text-secondary);padding:6px 8px;border:1px solid var(--border);text-align:center;font-size:.7rem}
+table.dw-table td{border:1px solid var(--border);padding:4px 6px;text-align:center;vertical-align:middle;min-width:92px}
+table.dw-table td.dw-class{background:var(--accent-light);color:var(--accent);font-weight:700;text-align:left;min-width:70px}
+table.dw-table td.dw-free{color:var(--text-light)}
+table.dw-table td.dw-break{background:var(--break-bg);color:var(--text-light)}
+table.dw-table td.dw-80{background:#fff7e0;border:2px solid #f5b942}
+.dw-teacher{font-weight:700;color:var(--text);font-size:.68rem}
+.dw-subject{font-weight:500;color:var(--text-secondary);font-size:.62rem}
+.dw-tag{display:inline-block;margin-top:2px;padding:0 6px;border-radius:8px;background:#f5b942;color:#5b3a00;font-weight:800;font-size:.55rem}
+</style>
 </head>
 
 <body class="v2-app">
@@ -1706,11 +1725,13 @@ body.v2-app .mobile-nav{z-index:1050}
         <div><h2>School Setup</h2><p>Configure your school day</p></div>
       </div>
       <div class="settings-grid">
-        <label class="field"><span>Start time</span><input type="time" id="start-time" value="08:00"></label>
-        <label class="field"><span>Periods/day</span><input type="number" id="periods-per-day" min="1" max="12" value="8"></label>
+        <label class="field"><span>Start time</span><input type="time" id="start-time" value="10:55"></label>
+        <label class="field"><span>Periods/day</span><input type="number" id="periods-per-day" min="1" max="12" value="7"></label>
         <label class="field"><span>Lesson (min)</span><input type="number" id="lesson-minutes" min="20" max="120" step="5" value="40"></label>
+        <label class="field"><span>P1 extra (min)</span><input type="number" id="extra-first" min="0" max="30" value="5"></label>
         <label class="field"><span>Break after</span><input type="number" id="break-after" min="0" max="12" value="4"></label>
-        <label class="field"><span>Break (min)</span><input type="number" id="break-length" min="5" max="90" value="30"></label>
+        <label class="field"><span>Break (min)</span><input type="number" id="break-length" min="5" max="90" value="35"></label>
+        <label class="field"><span>After-break extra (min)</span><input type="number" id="extra-post-break" min="0" max="30" value="5"></label>
         <label class="field"><span>Lessons/week</span><input type="number" id="lessons-per-week" min="1" max="10" value="6"></label>
       </div>
       <div class="pattern-toggle-wrap">
@@ -1849,6 +1870,9 @@ body.v2-app .mobile-nav{z-index:1050}
         </div>
         <div class="generate-row">
           <button id="generate-btn-top" class="btn cta" disabled>🚀 Generate Timetable</button>
+          <label style="display:inline-flex;align-items:center;gap:6px;margin-left:12px;font-size:.8rem;" title="Fills every empty period of 9th-A, 9th-B, 10th-A, 10th-B using the teachers of their 80-minute subjects (40-min lessons, once per day per subject, never on that subject's 80-min day, no clashes).">
+            <input type="checkbox" id="autofill-core" checked> Fill empty periods in 9th-A/B &amp; 10th-A/B
+          </label>
         </div>
       </div>
     </div>
@@ -1864,12 +1888,14 @@ body.v2-app .mobile-nav{z-index:1050}
         <select id="view-selector">
           <option value="consolidated">📋 Consolidated (All)</option>
           <option value="summary">📊 Summary View</option>
+          <option value="daywise">📅 Day-wise View</option>
         </select>
         <span style="color:var(--text-light);font-size:0.8rem;">|</span>
         <div class="view-toggle-group">
           <button class="view-toggle-btn active" data-view="schedule" onclick="setViewMode('schedule')">📋 Grid</button>
           <button class="view-toggle-btn" data-view="teacher" onclick="setViewMode('teacher')">📊 Teacher</button>
           <button class="view-toggle-btn" data-view="summary" onclick="setViewMode('summary')">📋 Summary</button>
+          <button class="view-toggle-btn" data-view="daywise" onclick="setViewMode('daywise')">📅 Day-wise</button>
 		<!-- NEW SUBSTITUTION BUTTON - ADD THIS -->
   <button class="view-toggle-btn" data-view="substitution" onclick="setViewMode('substitution')" 
           style="background: linear-gradient(135deg, #ff6b6b, #ee5a24); 
@@ -1902,6 +1928,15 @@ body.v2-app .mobile-nav{z-index:1050}
           <button id="excel-btn" class="btn ghost small">📊 Excel</button>
           <button id="print-summary-btn" class="btn ghost small" style="border-color: var(--accent); color: var(--accent);">🖨️ Print Summary (A3)</button>
           <button id="print-a4-btn" class="btn ghost small" style="border-color: #28a745; color: #28a745;">🖨️ Print A4 (Fit 1 Page)</button>
+          <button id="print-daywise-a4-btn" class="btn ghost small" style="border-color: #d9480f; color: #d9480f;">🖨️ Day-wise A4</button>
+          <button id="print-daywise-a3-btn" class="btn ghost small" style="border-color: #d9480f; color: #d9480f;">🖨️ Day-wise A3</button>
+          <button id="print-senior-btn" class="btn ghost small" style="border-color: #6f42c1; color: #6f42c1;">🖨️ Print 9th-12th Summary</button>
+          <button id="excel-summary-a3-btn" class="btn ghost small" style="border-color: #1d7a46; color: #1d7a46;">📊 Excel: Summary A3</button>
+          <button id="excel-senior-btn" class="btn ghost small" style="border-color: #1d7a46; color: #1d7a46;">📊 Excel: 9th-12th Summary</button>
+          <button id="guest-report-btn" class="btn ghost small" style="border-color: #1d7a46; color: #1d7a46;">📊 Guest Teachers Report</button>
+          <button id="print-period7-btn" class="btn ghost small" style="border-color: #d9480f; color: #d9480f;">🖨️ Print 7th Period</button>
+          <button id="print-remedial-btn" class="btn ghost small" style="border-color: #6f42c1; color: #6f42c1;">🖨️ Remedial 9th-10th</button>
+          <button id="excel-remedial-btn" class="btn ghost small" style="border-color: #1d7a46; color: #1d7a46;">📊 Excel: Remedial 9th-10th</button>
           <button onclick="lockAllCurrentPositions()" class="btn warning small">🔒 Lock Current</button>
           <button onclick="unlockAllLessons()" class="btn ghost small">🔓 Unlock All</button>
         </div>
@@ -2260,20 +2295,31 @@ function isClassBusy(klass, day, period, grid) {
 }
 
 function buildSlots() {
-  // --- HARDCODED SETTINGS ---
-  const startTime = "10:55";
-  const periods = 7;
-  const breakAfter = 4;
-  const breakLength = 35;
-  const lessonMinutes = 40;
+  // Single source of truth for the school day. Every grid, PDF and Excel export reads these slots.
+  // Defaults = the real bell schedule: start 10:55, 7 periods of 40 min, P1 and the first period
+  // after the break get +5 min, 35-min break after P4  ->  school ends 16:20.
+  const intIn = (id, def, lo, hi) => {
+    const el = document.getElementById(id);
+    const v = el ? parseInt(el.value, 10) : NaN;
+    return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def;
+  };
+  const stEl = document.getElementById("start-time");
+  const startTime = (stEl && /^\d{1,2}:\d{2}$/.test(String(stEl.value))) ? String(stEl.value) : "10:55";
+  const periods = intIn("periods-per-day", 7, 1, 12);
+  const lessonMinutes = intIn("lesson-minutes", 40, 20, 120);
+  const breakAfter = intIn("break-after", 4, 0, 12);
+  const breakLength = intIn("break-length", 35, 5, 90);
+  const extraFirst = intIn("extra-first", 5, 0, 30);
+  const extraPostBreak = intIn("extra-post-break", 5, 0, 30);
 
   const [h, m] = startTime.split(":").map(Number);
   let minutes = h * 60 + m;
   const slots = [];
-  
+
   for (let p = 1; p <= periods; p++) {
-    slots.push({ period: p, start: fmt(minutes), end: fmt(minutes + lessonMinutes) });
-    minutes += lessonMinutes;
+    const len = lessonMinutes + (p === 1 ? extraFirst : 0) + (breakAfter > 0 && p === breakAfter + 1 ? extraPostBreak : 0);
+    slots.push({ period: p, start: fmt(minutes), end: fmt(minutes + len) });
+    minutes += len;
     if (breakAfter > 0 && p === breakAfter && p < periods) {
       slots.push({ period: "break", start: fmt(minutes), end: fmt(minutes + breakLength) });
       minutes += breakLength;
@@ -2348,6 +2394,7 @@ function generateRobustTimetable() {
   const { periods, slots, lessonMinutes, breakAfter } = buildSlots();
   const doubleStartPeriods = getDoubleStartPeriods();
   const unplaced = [];
+  const retryDoubles = []; // fixed-period 80-min blocks that clashed: retried on the SAME day at another valid pair
   const grid = {};
   DAYS.forEach(d => {
     grid[d] = {};
@@ -2374,8 +2421,21 @@ function generateRobustTimetable() {
     teacherPeriodMemory.add(teacherMemoryKey(entry.teacher, day, period));
     classPeriodMemory.add(classMemoryKey(entry.klass, day, period));
   };
+  // "None (Primary Wing ...)" style names are the shared MDM/lunch slot, not a real teacher.
+  const isPseudoTeacher = t => /^\s*none/i.test(String(t ?? ''));
   const teacherBusy = (teacher, day, period) =>
-    teacherBusyMemory(teacher, day, period) || isTeacherBusy(teacher, day, period, grid);
+    !isPseudoTeacher(teacher) && (teacherBusyMemory(teacher, day, period) || isTeacherBusy(teacher, day, period, grid));
+  // Rules for lessons with a FIXED period in the sheet:
+  //  * a real teacher can't be in two different subjects at once, BUT the same teacher+subject in
+  //    several classes at the same time is one combined lesson (e.g. Sanskrit for 9th-A + 9th-B).
+  //  * a class may have several parallel lessons in one period only when ALL of them are fixed
+  //    single lessons from the sheet (electives such as IT / B&W / Political Science in 11th-A P4).
+  const fixedTeacherClash = (entry, day, period) => {
+    if (isPseudoTeacher(entry.teacher)) return false;
+    return (grid[day]?.[period] || []).some(l => l.teacher === entry.teacher && norm(l.subject) !== norm(entry.subject));
+  };
+  const fixedClassClash = (entry, day, period) =>
+    (grid[day]?.[period] || []).some(l => l.klass === entry.klass && !(l._fixed && !l.isDouble));
   const classBusy = (klass, day, period) =>
     classBusyMemory(klass, day, period) || isClassBusy(klass, day, period, grid);
 
@@ -2383,6 +2443,9 @@ function generateRobustTimetable() {
   const entriesWithoutPeriod = entries.filter(e => e.period === null || e.period === undefined || e.period === '');
 
   entriesWithPeriod.sort((a, b) => {
+    // Fixed single lessons (e.g. P7 activities) are placed BEFORE fixed 80-min blocks,
+    // so a block can never steal a slot that a fixed lesson owns.
+    if (!!a.isDouble !== !!b.isDouble) return a.isDouble ? 1 : -1;
     if (a.day && !b.day) return -1;
     if (!a.day && b.day) return 1;
     return 0;
@@ -2410,10 +2473,14 @@ function generateRobustTimetable() {
     // Summary columns.
     let fixedPlaced = false;
     let fixedFailureReason = '';
-    const candidateDays = entry.day ? [entry.day] : shuffle([...DAYS]);
+    // Sheet rule: a fixed Period with a Day -> that day only; a fixed Period with NO Day -> every day.
+    // (80-minute blocks keep their own day/retry logic below.)
+    const placeEveryDay = !entry.day && !entry.isDouble;
+    const failedEveryDay = [];
+    const candidateDays = entry.day ? [entry.day] : (placeEveryDay ? [...DAYS] : shuffle([...DAYS]));
 
     for (const day of candidateDays) {
-      if (fixedPlaced) break;
+      if (fixedPlaced && !placeEveryDay) break;
       if (!grid[day]) grid[day] = {};
       if (!grid[day][period]) grid[day][period] = [];
 
@@ -2421,11 +2488,8 @@ function generateRobustTimetable() {
       // the first half unless both periods are simultaneously available.
       if (entry.isDouble) {
         if (!isValidDoubleStart(period) || period + 1 > periods) {
-          conflicts.push({
-            entry, day, period,
-            reason: `80-min block starting at P${period} is not a valid consecutive pair (it cannot cross the lunch break)`
-          });
-          unplaced.push({ entry, missing: 1 });
+          // Not a valid consecutive pair (e.g. would cross lunch). The retry pass below
+          // will find another valid pair on the same day.
           continue;
         }
 
@@ -2456,21 +2520,36 @@ function generateRobustTimetable() {
 
       // Fixed normal lesson: a class and a teacher can each have only ONE
       // lesson in a period.  Never force a conflicting lesson into the grid.
-      const teacherSlotBusy = teacherBusy(entry.teacher, day, period);
-      const classSlotBusy = classBusy(entry.klass, day, period);
+      const teacherSlotBusy = fixedTeacherClash(entry, day, period);
+      const classSlotBusy = fixedClassClash(entry, day, period);
 
       if (teacherSlotBusy || classSlotBusy) {
         fixedFailureReason = teacherSlotBusy
-          ? `Teacher ${entry.teacher} already busy`
-          : `Class ${entry.klass} already has lesson`;
+          ? `Teacher ${entry.teacher} already teaching another subject at this time`
+          : `Class ${entry.klass} already has a non-fixed lesson here`;
+        if (placeEveryDay) {
+          failedEveryDay.push(day);
+          conflicts.push({ entry, day, period, reason: fixedFailureReason });
+        }
         continue;
       }
 
       const posKey = getPosKey(entry.teacher, entry.subject, entry.klass, day, period);
-      grid[day][period].push({ ...entry, day, period });
+      grid[day][period].push({ ...entry, day, period, _fixed: true });
       reserveSlot(entry, day, period);
       placedPositions.add(posKey);
       fixedPlaced = true;
+    }
+
+    if (!fixedPlaced && entry.isDouble) {
+      retryDoubles.push(entry);
+      continue;
+    }
+
+    if (placeEveryDay) {
+      // Conflicts were already recorded per day above; report the lesson once.
+      if (failedEveryDay.length) unplaced.push({ entry, missing: failedEveryDay.length });
+      continue;
     }
 
     if (!fixedPlaced) {
@@ -2487,7 +2566,7 @@ function generateRobustTimetable() {
 
   // 80-minute (double) blocks are the most constrained, so place them first.
   // Fixed-day ones go first, then the rest.
-  const doubleEntries = entriesWithoutPeriod.filter(e => e.isDouble)
+  const doubleEntries = [...retryDoubles, ...entriesWithoutPeriod.filter(e => e.isDouble)]
     .sort((a, b) => (a.days ? a.days.length : 99) - (b.days ? b.days.length : 99));
   const singleEntries = entriesWithoutPeriod.filter(e => !e.isDouble);
 
@@ -2586,34 +2665,102 @@ function generateRobustTimetable() {
     }
   }
 
-  // Final safety validation: the generated grid must never contain two
-  // different lessons for the same teacher OR the same class in one period.
-  // This protects against future scheduler changes and guarantees that the
-  // timetable shown to the user is physically teachable.
+  // ---- Fill empty periods of 9th-A/9th-B/10th-A/10th-B ----
+  // Each core subject (the ones with an 80-min block) gets ONE 80-min block on its
+  // sheet day, plus at most one 40-min lesson on every other day. Teachers never clash.
+  if (autoFillCoreEnabled()) {
+    const coreClasses = [...new Set(entries.map(e => e.klass))].filter(isCoreFillClass);
+    for (const klass of coreClasses) {
+      const subjMap = new Map();
+      entries.filter(e => e.klass === klass && e.isDouble).forEach(e => {
+        const key = norm(e.teacher) + '|' + norm(e.subject);
+        if (subjMap.has(key)) return;
+        let blockDay = null;
+        for (const d of DAYS) {
+          for (let p = 1; p <= periods; p++) {
+            if ((grid[d][p] || []).some(l => l.klass === klass && l.isDouble && !l.isDoublePart && norm(l.teacher) === norm(e.teacher) && norm(l.subject) === norm(e.subject))) blockDay = d;
+          }
+        }
+        subjMap.set(key, { entry: e, blockDay, core: true });
+      });
+      // Secondary candidates (used only when no core subject can take a slot):
+      // the class's non-day-fixed single lessons such as Sanskrit / B&W / IT.
+      const extraMap = new Map();
+      entries.filter(e => e.klass === klass && !e.isDouble && !e.day && !/^none/i.test(e.teacher)).forEach(e => {
+        const key = norm(e.teacher) + '|' + norm(e.subject);
+        if (!subjMap.has(key) && !extraMap.has(key)) extraMap.set(key, { entry: e, blockDay: null, core: false });
+      });
+      const core = [...subjMap.values()], extras = [...extraMap.values()];
+      if (!core.length) continue;
+
+      const emptySlots = [];
+      for (const d of DAYS) for (let p = 1; p <= periods; p++) if (!classBusy(klass, d, p)) emptySlots.push({ d, p });
+      if (!emptySlots.length) continue;
+
+      let best = null;
+      for (let trial = 0; trial < 60; trial++) {
+        const used = new Set();          // day|subjectKey already used by this class
+        const cnt = new Map();
+        const tmpT = new Set();
+        const plan = [];
+        core.concat(extras).forEach(c => { const k = norm(c.entry.teacher) + '|' + norm(c.entry.subject); cnt.set(k, 0); if (c.blockDay) used.add(c.blockDay + '|' + k); });
+        // existing lessons of that class/subject on a day also block a second one that day
+        for (const d of DAYS) for (let p = 1; p <= periods; p++) (grid[d][p] || []).forEach(l => { if (l.klass === klass) used.add(d + '|' + norm(l.teacher) + '|' + norm(l.subject)); });
+        const order = shuffle([...emptySlots]);
+        for (const { d, p } of order) {
+          const free = c => {
+            const k = norm(c.entry.teacher) + '|' + norm(c.entry.subject);
+            return !used.has(d + '|' + k) && !tmpT.has(d + '|' + p + '|' + norm(c.entry.teacher)) && !teacherBusy(c.entry.teacher, d, p);
+          };
+          let cands = core.filter(free);
+          if (!cands.length) cands = extras.filter(free);
+          if (!cands.length) continue;
+          cands = shuffle(cands).sort((a, b) => {
+            const ka = norm(a.entry.teacher) + '|' + norm(a.entry.subject), kb = norm(b.entry.teacher) + '|' + norm(b.entry.subject);
+            return cnt.get(ka) - cnt.get(kb);   // give the subject with fewest lessons first
+          });
+          const pick = cands[0];
+          const k = norm(pick.entry.teacher) + '|' + norm(pick.entry.subject);
+          used.add(d + '|' + k); cnt.set(k, cnt.get(k) + 1);
+          tmpT.add(d + '|' + p + '|' + norm(pick.entry.teacher));
+          plan.push({ entry: pick.entry, d, p });
+        }
+        const empties = emptySlots.length - plan.length;
+        if (!best || empties < best.empties) best = { plan, empties };
+        if (empties === 0) break;
+      }
+      best.plan.forEach(({ entry, d, p }) => {
+        grid[d][p].push({ ...entry, isDouble: false, isDoublePart: false, customLessons: null, days: null, day: d, period: p, isFiller: true });
+        reserveSlot(entry, d, p);
+      });
+    }
+  }
+
+  // Final safety validation. Two lessons of the same real teacher in one period are a clash unless
+  // it is the same subject (combined class); two lessons for one class in one period are a clash
+  // unless every one of them is a fixed single lesson from the sheet (parallel electives).
   for (const day of DAYS) {
     for (let p = 1; p <= periods; p++) {
       const lessons = grid[day]?.[p] || [];
-      const seenTeachers = new Set();
-      const seenClasses = new Set();
+      const teacherSubject = new Map();
+      const classLessons = new Map();
       for (const lesson of lessons) {
-        if (lesson.teacher && seenTeachers.has(lesson.teacher)) {
-          conflicts.push({
-            entry: lesson,
-            day,
-            period: p,
-            reason: `Teacher ${lesson.teacher} has more than one lesson`
-          });
+        if (lesson.teacher && !isPseudoTeacher(lesson.teacher)) {
+          const prior = teacherSubject.get(lesson.teacher);
+          if (prior !== undefined && prior !== norm(lesson.subject)) {
+            conflicts.push({ entry: lesson, day, period: p, reason: `Teacher ${lesson.teacher} has more than one lesson` });
+          }
+          teacherSubject.set(lesson.teacher, norm(lesson.subject));
         }
-        if (lesson.klass && seenClasses.has(lesson.klass)) {
-          conflicts.push({
-            entry: lesson,
-            day,
-            period: p,
-            reason: `Class ${lesson.klass} has more than one lesson`
-          });
+        if (lesson.klass) {
+          if (!classLessons.has(lesson.klass)) classLessons.set(lesson.klass, []);
+          classLessons.get(lesson.klass).push(lesson);
         }
-        if (lesson.teacher) seenTeachers.add(lesson.teacher);
-        if (lesson.klass) seenClasses.add(lesson.klass);
+      }
+      for (const [klass, ls] of classLessons) {
+        if (ls.length > 1 && !ls.every(l => l._fixed && !l.isDouble)) {
+          conflicts.push({ entry: ls[1], day, period: p, reason: `Class ${klass} has more than one lesson` });
+        }
       }
     }
   }
@@ -2655,6 +2802,25 @@ function getClassCoverageStats(grid, periods) {
   return { missing, impossible, details };
 }
 
+// Number of teacher-days with 4 or more teaching periods back to back (consecutive period numbers).
+// Used ONLY as a tie-breaker between otherwise equally good timetables, never to reject one.
+// The shared "None (...)" MDM entries are not real teachers and are ignored.
+function getTeacherStreakCount(grid, periods) {
+  let count = 0;
+  const teachers = [...new Set(entries.map(e => e.teacher).filter(t => t && !/^\s*none/i.test(t)))];
+  for (const day of DAYS) {
+    for (const t of teachers) {
+      let run = 0, hit = false;
+      for (let p = 1; p <= periods; p++) {
+        if ((grid[day]?.[p] || []).some(l => l.teacher === t)) { run++; if (run >= 4) hit = true; }
+        else run = 0;
+      }
+      if (hit) count++;
+    }
+  }
+  return count;
+}
+
 // ============================================
 // GENERATE FUNCTION
 // ============================================
@@ -2669,7 +2835,7 @@ function generate() {
     try {
       const { periods, slots, lessonMinutes } = buildSlots();
       // The generator is randomised, so try several times and keep the cleanest result
-      let result = null, bestScore = Infinity;
+      let result = null, bestScore = Infinity, bestStreaks = Infinity;
       for (let t = 0; t < 30; t++) {
         const r = generateRobustTimetable();
         const coverage = getClassCoverageStats(r.grid, periods);
@@ -2678,10 +2844,14 @@ function generate() {
         // the available P1..P7 columns whenever the weekly lesson count permits it.
         const score = (r.conflicts ? r.conflicts.length : 0) * 10000
           + (r.unplaced ? r.unplaced.reduce((a, u) => a + u.missing, 0) : 0) * 1000
-          + coverage.missing * 100;
+          + coverage.missing * 100
+          + (autoFillCoreEnabled() ? countCoreEmpty(r.grid) * 10 : 0);
         r.coverage = coverage;
-        if (score < bestScore) { bestScore = score; result = r; }
-        if (score === 0) break;
+        // Same 30 attempts as before. Among attempts with the SAME score, prefer the one with
+        // fewer teachers teaching 4+ periods back to back. Coverage/conflicts always win first.
+        const streaks = getTeacherStreakCount(r.grid, periods);
+        if (score < bestScore || (score === bestScore && streaks < bestStreaks)) { bestScore = score; bestStreaks = streaks; result = r; }
+        if (score === 0 && streaks === 0) break;
       }
       
       if (!result.grid) {
@@ -2712,7 +2882,7 @@ function generate() {
 
       if (result.unplaced && result.unplaced.length > 0) {
         const up = result.unplaced.map(u => `${u.entry.teacher} (${u.entry.subject}, ${u.entry.klass}) - ${u.missing} block(s)`).join('; ');
-        showMessage(`⚠️ Could not fit every 80-min block without a clash: ${up}. Try more days or fewer 80-min blocks.`, "warn");
+        showMessage(`⚠️ Could not fit every lesson/80-min block without a clash: ${up}. Try more days or fewer 80-min blocks.`, "warn");
       } else if (result.conflicts && result.conflicts.length > 0) {
         const conflictSummary = result.conflicts.map(c => 
           `${c.entry.teacher} (${c.entry.subject}) @ ${c.day} P${c.period}`
@@ -2963,6 +3133,7 @@ function updateViewSelector() {
   const classes = [...new Set(entries.map(e => e.klass))];
   let html = `<option value="consolidated">📋 Timetable (All)</option>`;
   html += `<option value="summary">📊 Summary View</option>`;
+  html += `<option value="daywise">📅 Day-wise View</option>`;
   html += `<option value="workload">📊 Workload</option>`;
   if (teachers.length > 0) {
     html += `<optgroup label="👩‍🏫 Teachers">`;
@@ -3320,11 +3491,289 @@ function lessonsAt(day, period, view) {
 // period-based summary needs the extra day context. Do not alter scheduling.
 const SUMMARY_DAY_LABEL_CLASSES = new Set(["9th-A", "9th-B", "10th-A", "10th-B"]);
 function summaryNeedsDayLabel(klass) {
-  const k = String(klass || "").trim().toLowerCase();
-  return ["9th-a", "9th-b", "10th-a", "10th-b"].includes(k);
+  // Every class now gets day tags, but a tag only shows when the lesson is NOT held on all six days.
+  return true;
 }
 function dayAbbr(day) {
   return ({Monday:"Mon", Tuesday:"Tue", Wednesday:"Wed", Thursday:"Thu", Friday:"Fri", Saturday:"Sat", Sunday:"Sun"})[day] || day || "";
+}
+
+// ============================================
+// 80-MINUTE BLOCK HELPERS + SHARED SUMMARY CELL BUILDER
+// ============================================
+// An 80-min lesson occupies two consecutive periods in the grid: the first
+// half has isDouble, the second half has isDouble + isDoublePart.
+function lessonBlock(l) {
+  if (!l || !l.isDouble) return null;
+  const p = Number(l.period);
+  return l.isDoublePart ? { start: p - 1, end: p } : { start: p, end: p + 1 };
+}
+function block80Tag(l) {
+  const b = lessonBlock(l);
+  return b ? `80min P${b.start}-${b.end}` : '';
+}
+// Unique lessons of one class in one period column across the week.
+// For 9th/10th (day-labelled classes) the same teacher+subject on several days is merged into
+// ONE entry carrying a day label ("Mon/Wed"); a lesson held on all six days has no label at all.
+function getSummaryCellLessons(klass, periodNum) {
+  const found = [];
+  for (const day of DAYS) {
+    const lessons = (schedule.grid[day] && schedule.grid[day][periodNum]) || [];
+    lessons.filter(l => l.klass === klass).forEach(l => found.push({ ...l, day, period: periodNum }));
+  }
+  const map = new Map();
+  found.forEach(l => {
+    const t = String(l.teacher).trim().toLowerCase(), sub = String(l.subject).trim().toLowerCase();
+    const key = `${t}|||${sub}|${block80Tag(l)}`;
+    if (!map.has(key)) map.set(key, { ...l, _days: [l.day] });
+    else if (!map.get(key)._days.includes(l.day)) map.get(key)._days.push(l.day);
+  });
+  const out = Array.from(map.values());
+  out.forEach(l => {
+    l._dayLabel = DAYS.every(d => l._days.includes(d)) ? '' : DAYS.filter(d => l._days.includes(d)).map(dayAbbr).join('/');
+  });
+  return out;
+}
+function summaryLessonText(l, klass) {
+  const tag = [];
+  if (l._dayLabel) tag.push(l._dayLabel);
+  const b = block80Tag(l);
+  if (b) tag.push(b);
+  return `${l.teacher} (${l.subject})` + (tag.length ? ` [${tag.join(' ')}]` : '');
+}
+// One row per lesson for list-style exports; an 80-min block is ONE row "P3-P4 (80 min)".
+function getClassLessonRows(klass) {
+  const rows = [];
+  DAYS.forEach((day, di) => {
+    const periodsOfDay = Object.keys(schedule.grid[day] || {}).map(Number).sort((a, b) => a - b);
+    for (const p of periodsOfDay) {
+      (schedule.grid[day][p] || []).filter(l => l.klass === klass).forEach(l => {
+        if (l.isDouble && l.isDoublePart) {
+          const startThere = (schedule.grid[day][p - 1] || []).some(x => x.klass === klass && x.teacher === l.teacher && x.subject === l.subject && x.isDouble && !x.isDoublePart);
+          if (startThere) return;
+        }
+        const b = lessonBlock({ ...l, period: p });
+        rows.push({ dayIdx: di, day, period: p, periodLabel: b ? `P${b.start}-P${b.end} (80 min)` : `P${p}`, teacher: l.teacher, subject: l.subject });
+      });
+    }
+  });
+  const map = new Map();
+  rows.forEach(r => {
+    const key = summaryNeedsDayLabel(klass) ? `${r.day}|${r.periodLabel}|${r.teacher}|||${r.subject}` : `${r.teacher}|||${r.subject}|${r.periodLabel}`;
+    if (!map.has(key)) map.set(key, r);
+  });
+  return Array.from(map.values()).sort((a, b) => a.dayIdx - b.dayIdx || a.period - b.period);
+}
+
+// ============================================
+// DAY-WISE VIEW (class x period for one day; 80-min blocks merged across 2 periods)
+// ============================================
+let dayWiseDay = "Monday";
+// ============================================
+// AUTO-FILL SETTINGS + SELF CHECKS
+// ============================================
+function autoFillCoreEnabled() {
+  const el = document.getElementById("autofill-core");
+  return el ? el.checked : true;
+}
+function isCoreFillClass(klass) {
+  return ["9th-a", "9th-b", "10th-a", "10th-b"].includes(String(klass || "").trim().toLowerCase());
+}
+function countCoreEmpty(grid) {
+  const periods = buildSlots().periods;
+  let n = 0;
+  const classes = [...new Set(entries.map(e => e.klass))].filter(isCoreFillClass);
+  for (const k of classes) for (const d of DAYS) for (let p = 1; p <= periods; p++)
+    if (!(grid[d] && grid[d][p] || []).some(l => l.klass === k)) n++;
+  return n;
+}
+function runTimetableChecks() {
+  const periods = buildSlots().periods;
+  const res = { teacherClashes: [], classClashes: [], doubleProblems: [], doubleCount: 0, coreEmpty: {} };
+  for (const d of DAYS) for (let p = 1; p <= periods; p++) {
+    const slotLessons = (schedule.grid[d] && schedule.grid[d][p]) || [];
+    const tSubj = new Map(), cLs = new Map();
+    for (const l of slotLessons) {
+      if (!/^\s*none/i.test(l.teacher)) {
+        const prior = tSubj.get(l.teacher);
+        const sub = String(l.subject || '').trim().toLowerCase();
+        if (prior !== undefined && prior !== sub) res.teacherClashes.push(`${l.teacher} ${dayAbbr(d)} P${p}`);
+        tSubj.set(l.teacher, sub);
+      }
+      if (!cLs.has(l.klass)) cLs.set(l.klass, []);
+      cLs.get(l.klass).push(l);
+    }
+    for (const [k, ls] of cLs) {
+      if (ls.length > 1 && !ls.every(l => l._fixed && !l.isDouble)) res.classClashes.push(`${k} ${dayAbbr(d)} P${p}`);
+    }
+  }
+  // every 80-min sheet row must appear exactly once in the week
+  entries.filter(e => e.isDouble).forEach(e => {
+    res.doubleCount++;
+    let n = 0;
+    for (const d of DAYS) for (let p = 1; p <= periods; p++)
+      n += ((schedule.grid[d] && schedule.grid[d][p]) || []).filter(l => l.klass === e.klass && l.isDouble && !l.isDoublePart && l.teacher === e.teacher && l.subject === e.subject).length;
+    if (n !== 1) res.doubleProblems.push(`${e.klass} ${e.subject} (${e.teacher}): ${n} block(s)`);
+  });
+  [...new Set(entries.map(e => e.klass))].filter(isCoreFillClass).forEach(k => {
+    let n = 0;
+    for (const d of DAYS) for (let p = 1; p <= periods; p++)
+      if (!((schedule.grid[d] && schedule.grid[d][p]) || []).some(l => l.klass === k)) n++;
+    res.coreEmpty[k] = n;
+  });
+  return res;
+}
+function buildChecksStrip() {
+  const r = runTimetableChecks();
+  const emptyTotal = Object.values(r.coreEmpty).reduce((a, b) => a + b, 0);
+  const ok = !r.teacherClashes.length && !r.classClashes.length && !r.doubleProblems.length && emptyTotal === 0;
+  const div = document.createElement("div");
+  div.style.cssText = `margin:0 0 10px;padding:8px 12px;border-radius:8px;font-size:.75rem;line-height:1.5;border:1px solid ${ok ? "#9bd8a8" : "#f0c36d"};background:${ok ? "#eefaf0" : "#fff8e6"};color:#333;`;
+  const emptyTxt = Object.keys(r.coreEmpty).length
+    ? Object.entries(r.coreEmpty).map(([k, n]) => `${k}: ${n}`).join(", ")
+    : "n/a";
+  div.innerHTML = `<strong>${ok ? "✅" : "⚠️"} Checks</strong> &nbsp;|&nbsp; Teacher clashes: <strong>${r.teacherClashes.length}</strong>`
+    + ` &nbsp;|&nbsp; Class clashes: <strong>${r.classClashes.length}</strong>`
+    + ` &nbsp;|&nbsp; 80-min blocks placed exactly once: <strong>${r.doubleCount - r.doubleProblems.length}/${r.doubleCount}</strong>`
+    + ` &nbsp;|&nbsp; Empty periods (${esc(emptyTxt)})`
+    + (r.teacherClashes.length ? `<br>Teacher clashes: ${esc(r.teacherClashes.join("; "))}` : "")
+    + (r.doubleProblems.length ? `<br>80-min problems: ${esc(r.doubleProblems.join("; "))}` : "");
+  return div;
+}
+function dayEightyList(day) {
+  const items = [];
+  planDay(day).forEach(row => row.cells.forEach(c => {
+    if (c.type === "lesson" && c.is80 && c.span === 2) items.push({ klass: row.klass, p: c.period, teacher: c.lessons[0].teacher, subject: c.lessons[0].subject });
+  }));
+  return items;
+}
+function updateDayPrintLabels() {
+  const label = (viewMode === "daywise" && dayWiseDay !== "All") ? dayWiseDay : "All days";
+  const a4 = document.getElementById("print-daywise-a4-btn"), a3 = document.getElementById("print-daywise-a3-btn");
+  if (a4) a4.textContent = `🖨️ ${label} A4`;
+  if (a3) a3.textContent = `🖨️ ${label} A3`;
+}
+
+// Every class that exists in the entries OR anywhere in the generated grid,
+// so no class can silently drop out of the day-wise views/prints.
+function allScheduleClasses() {
+  const set = new Set(entries.map(e => e.klass).filter(Boolean));
+  if (schedule && schedule.grid) {
+    Object.keys(schedule.grid).forEach(day => {
+      Object.keys(schedule.grid[day] || {}).forEach(p => {
+        (schedule.grid[day][p] || []).forEach(l => { if (l && l.klass) set.add(l.klass); });
+      });
+    });
+  }
+  return [...set].sort((a, b) => (parseInt(a) || 0) - (parseInt(b) || 0) || String(a).localeCompare(String(b), undefined, { numeric: true }));
+}
+function sortedClassList() { return allScheduleClasses(); }
+// Builds the cell plan for a day: returns rows [{klass, cells:[{type, span, lessons, period}]}]
+function planDay(day) {
+  const slots = schedule.slots;
+  return sortedClassList().map(klass => {
+    const cells = [];
+    const skip = new Set();
+    slots.forEach((slot, si) => {
+      if (slot.period === "break") { cells.push({ type: "break" }); return; }
+      const p = slot.period;
+      if (skip.has(p)) return;
+      const lessons = ((schedule.grid[day] && schedule.grid[day][p]) || []).filter(l => l.klass === klass);
+      if (!lessons.length) { cells.push({ type: "free", span: 1, period: p }); return; }
+      let span = 1;
+      const l0 = lessons[0];
+      const next = slots[si + 1];
+      if (lessons.length === 1 && l0.isDouble && !l0.isDoublePart && next && next.period === p + 1) {
+        // Only merge when the next period holds nothing but the 2nd half of this same 80-min lesson.
+        // Otherwise (extra lessons in the next period) merging would hide them.
+        const nextL = ((schedule.grid[day] && schedule.grid[day][p + 1]) || []).filter(l => l.klass === klass);
+        const onlyPart = nextL.length === 0 || (nextL.length === 1 && nextL[0].isDouble && nextL[0].isDoublePart
+          && nextL[0].teacher === l0.teacher && nextL[0].subject === l0.subject);
+        if (onlyPart) { span = 2; skip.add(p + 1); }
+      }
+      cells.push({ type: "lesson", span, lessons, period: p, is80: !!l0.isDouble });
+    });
+    return { klass, cells };
+  });
+}
+function buildDayTable(day) {
+  const slots = schedule.slots;
+  const table = document.createElement("table");
+  table.className = "dw-table";
+  let thead = `<thead><tr><th>Class</th>`;
+  slots.forEach(s => {
+    thead += s.period === "break"
+      ? `<th>☕ Break<br><span style="font-weight:400;">${s.start}</span></th>`
+      : `<th>P${s.period}<br><span style="font-weight:400;color:var(--text-light);font-size:.6rem;">${s.start}-${s.end}</span></th>`;
+  });
+  table.innerHTML = thead + `</tr></thead>`;
+  const tbody = document.createElement("tbody");
+  planDay(day).forEach(row => {
+    let html = `<td class="dw-class">${esc(row.klass)}</td>`;
+    row.cells.forEach(c => {
+      if (c.type === "break") { html += `<td class="dw-break">☕</td>`; return; }
+      if (c.type === "free") { html += `<td class="dw-free">—</td>`; return; }
+      const inner = c.lessons.map(l => `
+        <div class="dw-teacher">${esc(l.teacher)}</div>
+        <div class="dw-subject">${esc(l.subject)}</div>
+        ${l.isDouble ? `<span class="dw-tag">⏱ 80 min${c.span === 2 ? "" : " (cont.)"}</span>` : ""}`).join('<hr style="border:0;border-top:1px dashed var(--border);margin:3px 0;">');
+      html += `<td class="${c.is80 ? "dw-80" : ""}" colspan="${c.span}">${inner}</td>`;
+    });
+    const tr = document.createElement("tr");
+    tr.innerHTML = html;
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  const wrap = document.createElement("div");
+  wrap.className = "table-scroll";
+  wrap.appendChild(table);
+  return wrap;
+}
+function buildDayWiseView() {
+  const container = document.createElement("div");
+  container.className = "timetable-block";
+  const title = document.createElement("div");
+  title.className = "timetable-title";
+  title.innerHTML = `<span class="avatar">📅</span> Day-wise View`;
+  container.appendChild(title);
+
+  const tabs = document.createElement("div");
+  tabs.className = "dw-tabs";
+  [...DAYS, "All"].forEach(d => {
+    const b = document.createElement("button");
+    b.className = "dw-tab" + (dayWiseDay === d ? " active" : "");
+    b.textContent = d === "All" ? "All days" : d;
+    b.onclick = () => { dayWiseDay = d; renderTimetables(); };
+    tabs.appendChild(b);
+  });
+  container.appendChild(tabs);
+  container.appendChild(buildChecksStrip());
+
+  const legend = document.createElement("div");
+  legend.className = "dw-legend";
+  legend.innerHTML = `Rows = classes, columns = periods for the selected day. <span class="dw-tag">⏱ 80 min</span> lessons are one merged cell spanning two periods.`;
+  container.appendChild(legend);
+
+  const daysToShow = dayWiseDay === "All" ? DAYS : [dayWiseDay];
+  daysToShow.forEach(day => {
+    if (dayWiseDay === "All") {
+      const h = document.createElement("div");
+      h.className = "dw-day-title";
+      h.textContent = day;
+      container.appendChild(h);
+    }
+    container.appendChild(buildDayTable(day));
+    const eighty = dayEightyList(day);
+    const note = document.createElement("div");
+    note.className = "dw-legend";
+    note.style.marginTop = "6px";
+    note.innerHTML = `<strong>⏱ 80-minute periods on ${day}:</strong> ` + (eighty.length
+      ? eighty.map(x => `${esc(x.klass)} - ${esc(x.teacher)} (${esc(x.subject)}) P${x.p}-${x.p + 1}`).join(" &nbsp;|&nbsp; ")
+      : "none");
+    container.appendChild(note);
+  });
+  updateDayPrintLabels();
+  return container;
 }
 
 function buildSummaryView() {
@@ -3355,7 +3804,7 @@ function buildSummaryView() {
     if (slot.period === "break") {
       thead += `<th style="color:var(--text-light);font-size:0.7rem;min-width:80px;">☕ Break<br><span style="font-weight:400;">${slot.start}</span></th>`;
     } else {
-      thead += `<th style="min-width:80px;">P${slot.period}<br><span style="font-weight:400;color:var(--text-light);font-size:0.6rem;">${slot.start}</span></th>`;
+      thead += `<th style="min-width:80px;">P${slot.period}<br><span style="font-weight:400;color:var(--text-light);font-size:0.6rem;">${slot.start}-${slot.end}</span></th>`;
     }
   }
   thead += `</tr></thead>`;
@@ -3373,32 +3822,14 @@ function buildSummaryView() {
         continue;
       }
       
-      let foundLessons = [];
+      const cellLessons = getSummaryCellLessons(klass, slot.period);
       
-      for (const day of DAYS) {
-        const lessons = schedule.grid[day]?.[slot.period] || [];
-        const classLessons = lessons.filter(l => l.klass === klass);
-        if (classLessons.length > 0) {
-          classLessons.forEach(l => {
-            foundLessons.push({ ...l, day: day });
-          });
-        }
-      }
-      
-      if (foundLessons.length === 0) {
+      if (cellLessons.length === 0) {
         html += `<td class="free-cell" style="color:var(--text-light);">—</td>`;
       } else {
         let cellContent = '<div style="display:flex;flex-direction:column;gap:2px;align-items:center;width:100%;">';
         
-        const uniqueLessons = new Map();
-        foundLessons.forEach(l => {
-          const key = summaryNeedsDayLabel(klass) ? `${l.day}|${l.teacher.trim().toLowerCase()}|||${l.subject.trim().toLowerCase()}` : `${l.teacher.trim().toLowerCase()}|||${l.subject.trim().toLowerCase()}`;
-          if (!uniqueLessons.has(key)) {
-            uniqueLessons.set(key, l);
-          }
-        });
-
-        uniqueLessons.forEach((lesson) => {
+        cellLessons.forEach((lesson) => {
           const isLocked = isLessonLocked(lesson);
           const isForced = lesson._forced || false;
           const color = getSubjectColor(lesson.subject);
@@ -3421,9 +3852,10 @@ function buildSummaryView() {
               align-items: center;
               width: 100%;
             ">
-              ${summaryNeedsDayLabel(klass) ? `<div style="font-weight:700;color:var(--accent);font-size:0.58rem;line-height:1.1;margin-bottom:1px;">${esc(dayAbbr(lesson.day))}</div>` : ''}
+              ${lesson._dayLabel ? `<div style="font-weight:700;color:var(--accent);font-size:0.58rem;line-height:1.1;margin-bottom:1px;">${esc(lesson._dayLabel)}</div>` : ''}
               <div style="font-weight:600;color:var(--text);font-size:0.65rem;">${esc(lesson.teacher)}</div>
               <div style="font-weight:500;color:var(--text-secondary);font-size:0.6rem;background:${color}20;padding:1px 6px;border-radius:3px;display:inline-block;">${esc(lesson.subject)}</div>
+              ${block80Tag(lesson) ? `<div style="font-weight:800;color:#5b3a00;background:#f5b942;border-radius:8px;padding:0 6px;font-size:0.52rem;margin-top:2px;">⏱ ${esc(block80Tag(lesson))}</div>` : ''}
               ${isLocked ? '<span style="font-size:0.5rem;color:var(--accent);">🔒</span>' : ''}
               ${isSpecial ? '<span style="font-size:0.5rem;color:var(--accent);">⭐</span>' : ''}
               ${isForced ? '<span style="font-size:0.5rem;color:#856404;">⚠️</span>' : ''}
@@ -3478,7 +3910,9 @@ function renderTimetables() {
   container.innerHTML = "";
   const view = parseView(activeView);
   
-  if (view.type === "summary" || viewMode === "summary") {
+  if (view.type === "daywise") {
+    container.appendChild(buildDayWiseView());
+  } else if (view.type === "summary" || viewMode === "summary") {
     const summaryView = buildSummaryView();
     if (summaryView) {
       container.appendChild(summaryView);
@@ -3501,6 +3935,7 @@ function renderTimetables() {
 function parseView(val) {
   if (val === "consolidated") return { type: "consolidated", name: null };
   if (val === "summary") return { type: "summary", name: null };
+  if (val === "daywise") return { type: "daywise", name: null };
   const i = val.indexOf(":");
   if (i === -1) return { type: "consolidated", name: null };
   return { type: val.slice(0, i), name: val.slice(i + 1) };
@@ -3514,8 +3949,15 @@ function setViewMode(mode) {
   if (mode === 'summary') {
     activeView = 'summary';
     document.getElementById('view-selector').value = 'summary';
+  } else if (mode === 'daywise') {
+    activeView = 'daywise';
+    document.getElementById('view-selector').value = 'daywise';
+  } else if (activeView === 'daywise') {
+    activeView = 'consolidated';
+    document.getElementById('view-selector').value = 'consolidated';
   }
   if (schedule) renderTimetables();
+  updateDayPrintLabels();
 }
 window.setViewMode = setViewMode;
 
@@ -4952,6 +5394,9 @@ function initTabs() {
 // ============================================
 document.getElementById("view-selector")?.addEventListener("change", function() {
   activeView = this.value;
+  if (activeView === 'daywise') { viewMode = 'daywise'; }
+  else if (viewMode === 'daywise') { viewMode = 'schedule'; }
+  document.querySelectorAll('.view-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.view === viewMode));
   if (activeView === 'workload') {
     showWorkloadSummary();
     return;
@@ -5207,26 +5652,10 @@ function exportSummaryPDF(doc) {
     doc.text(`Class: ${klass}`, 40, yPos);
     yPos += 10;
     
-    const classLessons = [];
-    for (const day of DAYS) {
-      for (const period in schedule.grid[day]) {
-        const lessons = schedule.grid[day][period] || [];
-        const found = lessons.filter(l => l.klass === klass);
-        found.forEach(l => {
-          classLessons.push({ day, period: parseInt(period), teacher: l.teacher, subject: l.subject });
-        });
-      }
-    }
-    
-    const uniqueMap = new Map();
-    classLessons.forEach(l => {
-      const key = summaryNeedsDayLabel(klass) ? `${l.day}|${l.teacher}|||${l.subject}` : `${l.teacher}|||${l.subject}`;
-      if (!uniqueMap.has(key)) uniqueMap.set(key, l);
-    });
-    const uniqueLessons = Array.from(uniqueMap.values());
+    const uniqueLessons = getClassLessonRows(klass);
     
     const headers = ["Day", "Period", "Teacher", "Subject"];
-    const rows = uniqueLessons.map(l => [l.day, `P${l.period}`, l.teacher, l.subject]);
+    const rows = uniqueLessons.map(l => [l.day, l.periodLabel, l.teacher, l.subject]);
     
     if (rows.length > 0) {
       doc.autoTable({
@@ -5352,6 +5781,9 @@ function importOptionsFromExcel(file, replaceExisting = false) {
       const minuteHeaders = ['minutes', 'minute', 'min', 'mins', 'duration', 'duration (min)', 'duration (minutes)', 'period length', 'time'];
       const classTeacherHeaders = ['class teacher', 'classteacher', 'ct'];
       const coClassTeacherHeaders = ['co class teacher', 'coteacher', 'co-teacher', 'co teacher'];
+      const staffTypeHeaders = ['staff type', 'stafftype', 'staff', 'teacher type', 'employment type', 'guest/permanent', 'permanent/guest', 'type of staff'];
+      const guestFlagHeaders = ['guest', 'is guest', 'guest teacher', 'guest?'];
+      const normStaffType = v => /guest|visiting|temporary|temp\b|contract/i.test(v) ? 'Guest' : (/perm|regular|full/i.test(v) ? 'Permanent' : '');
 
       wb.SheetNames.forEach(sheetName => {
         const sheet = wb.Sheets[sheetName];
@@ -5368,6 +5800,8 @@ function importOptionsFromExcel(file, replaceExisting = false) {
           if (matchCol(h, minuteHeaders)) return 'minutes';
           if (matchCol(h, classTeacherHeaders)) return 'classTeacher';
           if (matchCol(h, coClassTeacherHeaders)) return 'coClassTeacher';
+          if (matchCol(h, staffTypeHeaders)) return 'staffType';
+          if (matchCol(h, guestFlagHeaders)) return 'guestFlag';
           return null;
         });
 
@@ -5399,7 +5833,7 @@ function importOptionsFromExcel(file, replaceExisting = false) {
         for (let r = 1; r < rows.length; r++) {
           const row = rows[r];
           let teacher = '', subject = '', klass = '', period = null, day = null, minutes = 40;
-          let classTeacher = '', coClassTeacher = '';
+          let classTeacher = '', coClassTeacher = '', staffType = '';
           
           colMap.forEach((type, c) => {
             const raw = row[c];
@@ -5431,6 +5865,9 @@ function importOptionsFromExcel(file, replaceExisting = false) {
             }
             if (type === 'classTeacher') classTeacher = val;
             if (type === 'coClassTeacher') coClassTeacher = val;
+            if (type === 'staffType') staffType = normStaffType(val);
+            // Anything written in the Guest column marks a guest (blank cells are skipped above).
+            if (type === 'guestFlag') staffType = /^(n|no|false|0|permanent|regular)$/i.test(val) ? 'Permanent' : 'Guest';
           });
 
           if (!teacher || !subject || !klass) continue;
@@ -5483,6 +5920,7 @@ function importOptionsFromExcel(file, replaceExisting = false) {
             day: day,
             classTeacher: finalClassTeacher,
             coClassTeacher: finalCoClassTeacher,
+            staffType: staffType,
             isDouble: minutes >= 80,
             priority: 'light',
             // an 80-min row with a Day = exactly one 80-min block on that day
@@ -5543,30 +5981,14 @@ function exportSummaryExcel(wb) {
   const masterData = [["Class", "Day", "Period", "Teacher", "Subject"]];
   
   for (const klass of classes) {
-    const classLessons = [];
-    for (const day of DAYS) {
-      for (const period in schedule.grid[day]) {
-        const lessons = schedule.grid[day][period] || [];
-        const found = lessons.filter(l => l.klass === klass);
-        found.forEach(l => {
-          classLessons.push({ day, period: parseInt(period), teacher: l.teacher, subject: l.subject });
-        });
-      }
-    }
-    
-    const uniqueMap = new Map();
-    classLessons.forEach(l => {
-      const key = `${l.teacher}|||${l.subject}`;
-      if (!uniqueMap.has(key)) uniqueMap.set(key, l);
-    });
-    const uniqueLessons = Array.from(uniqueMap.values());
+    const uniqueLessons = getClassLessonRows(klass);
     
     uniqueLessons.forEach(l => {
-      masterData.push([klass, l.day, `P${l.period}`, l.teacher, l.subject]);
+      masterData.push([klass, l.day, l.periodLabel, l.teacher, l.subject]);
     });
     
     const sheetData = [["Day", "Period", "Teacher", "Subject"]];
-    uniqueLessons.forEach(l => sheetData.push([l.day, `P${l.period}`, l.teacher, l.subject]));
+    uniqueLessons.forEach(l => sheetData.push([l.day, l.periodLabel, l.teacher, l.subject]));
     
     const sheet = XLSX.utils.aoa_to_sheet(sheetData);
     const name = klass.replace(/[\\/*?:[\]]/g, "").substring(0, 31);
@@ -5924,247 +6346,7 @@ document.getElementById("admin-link")?.addEventListener("click", function(e) {
 // PRINT SUMMARY AS A3 PDF - ONE PAGE (OPTIMIZED)
 // ============================================
 
-document.getElementById("print-summary-btn")?.addEventListener("click", function() {
-  if (!schedule) {
-    showMessage('Generate timetable first', "error");
-    return;
-  }
-
-  // Open the destination tab synchronously, in direct response to the click, BEFORE any
-  // async work. Mobile browsers (especially iOS Safari) only allow window.open() to bypass
-  // the popup blocker when it happens inside the original click handler with no delay in
-  // between; opening it later (e.g. from inside a setTimeout) is what made this "work on
-  // desktop, fail on mobile at random." We navigate this blank tab to the PDF once it's ready.
-  const printWin = window.open('', '_blank');
-
-  showLoading();
-  
-  setTimeout(() => {
-    try {
-      const { jsPDF } = window.jspdf;
-      
-      // A3 size in points: 1190 x 842 (landscape)
-      const doc = new jsPDF({ 
-        orientation: "landscape", 
-        unit: "pt", 
-        format: "a3" 
-      });
-      
-      // ========================================
-      // HARDCODED SCHOOL NAME - CHANGE THIS
-      // ========================================
-      const SCHOOL_NAME = "PM SHRI SHAHID INDER GIRI GOVT HSS RAMPUR";
-      
-      const pageWidth = doc.internal.pageSize.width;
-      const centerX = pageWidth / 2;
-      let yPos = 20; // TIGHTEST top margin
-      
-      // ========================================
-      // HEADER - CENTERED (Smallest Font)
-      // ========================================
-      
-      doc.setFontSize(16);     // SMALLER
-      doc.setTextColor(74, 108, 247);
-      doc.text(SCHOOL_NAME, centerX, yPos, { align: 'center' });
-      yPos += 14;             // TIGHTER spacing
-      
-      doc.setFontSize(12);     // SMALLER
-      doc.setTextColor(0);
-      doc.text('Summary Timetable', centerX, yPos, { align: 'center' });
-      yPos += 10;             // TIGHTER spacing
-      
-      // ========================================
-      // PERIOD TIMES - CORRECT
-      // ========================================
-      function formatTime(hours, minutes) {
-        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-      }
-      
-      const slots = [
-        { period: 1, startHour: 10, startMin: 55, endHour: 11, endMin: 40, isBreak: false },
-        { period: 2, startHour: 11, startMin: 40, endHour: 12, endMin: 20, isBreak: false },
-        { period: 3, startHour: 12, startMin: 20, endHour: 13, endMin: 0, isBreak: false },
-        { period: 4, startHour: 13, startMin: 0, endHour: 13, endMin: 40, isBreak: false },
-        { period: 'break', startHour: 13, startMin: 40, endHour: 14, endMin: 15, isBreak: true },
-        { period: 5, startHour: 14, startMin: 15, endHour: 15, endMin: 0, isBreak: false },
-        { period: 6, startHour: 15, startMin: 0, endHour: 15, endMin: 40, isBreak: false },
-        { period: 7, startHour: 15, startMin: 40, endHour: 16, endMin: 20, isBreak: false }
-      ];
-      
-      // ========================================
-      // BUILD HEADERS
-      // ========================================
-      let headers = ["Class"];
-      
-      for (const slot of slots) {
-        if (slot.isBreak) {
-          headers.push("Break");
-        } else {
-          const start = formatTime(slot.startHour, slot.startMin);
-          const end = formatTime(slot.endHour, slot.endMin);
-          headers.push(`P${slot.period}\n${start}-${end}`);
-        }
-      }
-      
-      // ========================================
-      // BUILD TABLE DATA
-      // ========================================
-      const classes = [...new Set(entries.map(e => e.klass))].sort((a, b) => {
-        const numA = parseInt(a) || 0;
-        const numB = parseInt(b) || 0;
-        return numA - numB;
-      });
-      
-      const tableData = [];
-      
-      for (const klass of classes) {
-        let row = [klass];
-        
-        for (const slot of slots) {
-          if (slot.isBreak) {
-            row.push("☕");
-            continue;
-          }
-          
-          const periodNum = slot.period;
-          let foundLessons = [];
-          
-          for (const day of DAYS) {
-            const lessons = schedule.grid[day]?.[periodNum] || [];
-            const classLessons = lessons.filter(l => l.klass === klass);
-            if (classLessons.length > 0) {
-              classLessons.forEach(l => {
-                foundLessons.push({ ...l, day: day });
-              });
-            }
-          }
-          
-          if (foundLessons.length === 0) {
-            row.push("");
-          } else {
-            const uniqueMap = new Map();
-            foundLessons.forEach(l => {
-              const key = summaryNeedsDayLabel(klass) ? `${l.day}|${l.teacher}|||${l.subject}` : `${l.teacher}|||${l.subject}`;
-              if (!uniqueMap.has(key)) {
-                uniqueMap.set(key, l);
-              }
-            });
-            const uniqueLessons = Array.from(uniqueMap.values());
-            
-            let cellContent = uniqueLessons.map(l => {
-              return summaryNeedsDayLabel(klass)
-                ? `${l.teacher} (${l.subject}) [${dayAbbr(l.day)}]`
-                : `${l.teacher} (${l.subject})`;
-            }).join("\n");
-            row.push(cellContent);
-          }
-        }
-        tableData.push(row);
-      }
-      
-      // ========================================
-      // CREATE TABLE - OPTIMIZED FOR ONE PAGE
-      // ========================================
-      doc.autoTable({
-        head: [headers],
-        body: tableData,
-        startY: yPos + 6,
-        styles: {
-          fontSize: 9,          // OPTIMIZED: Good balance
-          cellPadding: 1.5,     // TIGHT padding
-          valign: 'middle',
-          halign: 'center',
-          lineColor: [180, 180, 180],
-          lineWidth: 0.2,
-        },
-        headStyles: {
-          fillColor: [74, 108, 247],
-          textColor: [255, 255, 255],
-          fontSize: 7.5,        // SMALL headers
-          fontStyle: 'bold',
-          halign: 'center',
-          valign: 'middle',
-        },
-        columnStyles: {
-          0: { 
-            cellWidth: 35,      // NARROW class column
-            fontSize: 9,
-            fontStyle: 'bold', 
-            halign: 'left' 
-          },
-        },
-        bodyStyles: {
-          valign: 'middle',
-          halign: 'center',
-          fontSize: 9,          // OPTIMIZED: Content font
-        },
-        didDrawCell: function(data) {
-          if (headers[data.column.index] === "Break") {
-            data.cell.styles.fillColor = [245, 245, 245];
-            data.cell.styles.fontStyle = 'italic';
-            data.cell.styles.textColor = [150, 150, 150];
-            data.cell.styles.fontSize = 9;
-          }
-          if (data.cell.raw === "") {
-            data.cell.styles.textColor = [200, 200, 200];
-          }
-        },
-        margin: { left: 20, right: 20, top: yPos + 6, bottom: 12 },
-        pageBreak: 'auto',
-        showHead: 'everyPage',
-        tableWidth: 'auto',
-      });
-      
-      // ========================================
-      // FOOTER - Page Number Only
-      // ========================================
-      const totalPages = doc.internal.getNumberOfPages();
-      for (let i = 1; i <= totalPages; i++) {
-        doc.setPage(i);
-        doc.setFontSize(7);
-        doc.setTextColor(150, 150, 150);
-        doc.text(`Page ${i} of ${totalPages}`, doc.internal.pageSize.width - 50, doc.internal.pageSize.height - 10);
-        doc.text(SCHOOL_NAME, centerX, doc.internal.pageSize.height - 10, { align: 'center' });
-      }
-      
-      // ========================================
-      // SAVE AND OPEN FOR PRINT
-      // ========================================
-      const pdfBlob = doc.output('blob');
-      const pdfUrl = URL.createObjectURL(pdfBlob);
-
-      if (printWin && !printWin.closed) {
-        // Navigate the tab we already opened (on the click) to the finished PDF.
-        printWin.location.href = pdfUrl;
-        try {
-          printWin.addEventListener('load', () => {
-            setTimeout(() => { try { printWin.print(); } catch (e) { /* best effort */ } }, 400);
-          });
-        } catch (e) { /* some mobile browsers block cross-context listeners; that's fine */ }
-        showMessage("📄 Summary PDF ready — opening for print...", "ok");
-      } else {
-        // Popup blocked (common on mobile, or if the tab got closed) — fall back to a
-        // direct download so the person still gets the file no matter what.
-        const a = document.createElement('a');
-        a.href = pdfUrl;
-        a.download = `Summary_Timetable_${new Date().toISOString().slice(0, 10)}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        showMessage("📄 Pop-up was blocked, so the PDF downloaded instead. Open it and print from there.", "warn");
-      }
-      setTimeout(() => URL.revokeObjectURL(pdfUrl), 60000);
-
-      hideLoading();
-
-    } catch (e) {
-      console.error('Print error:', e);
-      hideLoading();
-      if (printWin && !printWin.closed) printWin.close();
-      showMessage("Error generating summary: " + e.message, "error");
-    }
-  }, 100);
-});
+// (A3 summary print now lives in the shared summary PDF builder further below)
 
 
 // Remembers the last day picked in the standalone Substitution view, so switching to
@@ -6685,236 +6867,750 @@ function exportSubstitutionPDF() {
 // Uses the same summary-table logic as the A3 Summary printer,
 // but outputs to A4 and dynamically fits the table to one page.
 // ============================================
-document.getElementById("print-a4-btn")?.addEventListener("click", function() {
-  if (!schedule) {
-    showMessage('Generate timetable first', "error");
-    return;
-  }
+// (A4 summary print now lives in the shared summary PDF builder further below)
 
-  // Open synchronously so popup blockers (especially mobile/iOS) are less likely to interfere.
+// ============================================
+// PRINT DAY-WISE (one page per day, 80-min blocks merged across 2 periods)
+// ============================================
+function printDayWise(format) {
+  if (!schedule) { showMessage('Generate timetable first', "error"); return; }
   const printWin = window.open('', '_blank');
-  if (!printWin) {
-    showMessage('Pop-up blocked. Please allow pop-ups to print.', "warn");
-    return;
-  }
-
   showLoading();
-
   setTimeout(() => {
     try {
       const { jsPDF } = window.jspdf;
-      const doc = new jsPDF({
-        orientation: "landscape",
-        unit: "pt",
-        format: "a4"
-      });
-
+      const doc = new jsPDF({ orientation: "landscape", unit: "pt", format });
       const SCHOOL_NAME = "PM SHRI SHAHID INDER GIRI GOVT HSS RAMPUR";
-      const pageWidth = doc.internal.pageSize.width;
-      const pageHeight = doc.internal.pageSize.height;
-      const centerX = pageWidth / 2;
-      let yPos = 12;
+      const W = doc.internal.pageSize.width, H = doc.internal.pageSize.height;
+      const isA3 = format === "a3";
+      const slots = schedule.slots;
+      const headers = ["Class", ...slots.map(s => s.period === "break" ? "Break" : `P${s.period}\n${s.start}-${s.end}`)];
+      const sizes = isA3 ? [9, 8.5, 8, 7.5, 7, 6.5, 6, 5.5, 5] : [6.5, 6, 5.5, 5, 4.5, 4];
+      const ML = isA3 ? 20 : 12;
 
-      // ========================================
-      // HEADER - same structure as A3 Summary
-      // ========================================
-      doc.setFontSize(10);
-      doc.setTextColor(74, 108, 247);
-      doc.text(SCHOOL_NAME, centerX, yPos, { align: 'center' });
-      yPos += 9;
-
-      doc.setFontSize(8);
-      doc.setTextColor(0);
-      doc.text('Summary Timetable', centerX, yPos, { align: 'center' });
-      yPos += 5;
-
-      // ========================================
-      // PERIOD TIMES - same source/logic as A3 Summary
-      // ========================================
-      function formatTime(hours, minutes) {
-        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-      }
-
-      const slots = [
-        { period: 1, startHour: 10, startMin: 55, endHour: 11, endMin: 40, isBreak: false },
-        { period: 2, startHour: 11, startMin: 40, endHour: 12, endMin: 20, isBreak: false },
-        { period: 3, startHour: 12, startMin: 20, endHour: 13, endMin: 0, isBreak: false },
-        { period: 4, startHour: 13, startMin: 0, endHour: 13, endMin: 40, isBreak: false },
-        { period: 'break', startHour: 13, startMin: 40, endHour: 14, endMin: 15, isBreak: true },
-        { period: 5, startHour: 14, startMin: 15, endHour: 15, endMin: 0, isBreak: false },
-        { period: 6, startHour: 15, startMin: 0, endHour: 15, endMin: 40, isBreak: false },
-        { period: 7, startHour: 15, startMin: 40, endHour: 16, endMin: 20, isBreak: false }
-      ];
-
-      // ========================================
-      // BUILD HEADERS
-      // ========================================
-      let headers = ["Class"];
-      for (const slot of slots) {
-        if (slot.isBreak) {
-          headers.push("Break");
-        } else {
-          const start = formatTime(slot.startHour, slot.startMin);
-          const end = formatTime(slot.endHour, slot.endMin);
-          headers.push(`P${slot.period}\n${start}-${end}`);
-        }
-      }
-
-      // ========================================
-      // BUILD EXACTLY THE SAME SUMMARY DATA AS A3
-      // ========================================
-      const classes = [...new Set(entries.map(e => e.klass))].sort((a, b) => {
-        const numA = parseInt(a) || 0;
-        const numB = parseInt(b) || 0;
-        return numA - numB;
-      });
-
-      const tableData = [];
-
-      for (const klass of classes) {
-        let row = [klass];
-
-        for (const slot of slots) {
-          if (slot.isBreak) {
-            row.push("☕");
-            continue;
-          }
-
-          const periodNum = slot.period;
-          let foundLessons = [];
-
-          for (const day of DAYS) {
-            const lessons = schedule.grid[day]?.[periodNum] || [];
-            const classLessons = lessons.filter(l => l.klass === klass);
-            if (classLessons.length > 0) {
-              classLessons.forEach(l => foundLessons.push({ ...l, day: day }));
-            }
-          }
-
-          if (foundLessons.length === 0) {
-            row.push("");
+      const bodyFor = day => planDay(day).map(row => {
+        const out = [{ content: row.klass, styles: { fontStyle: 'bold', halign: 'left' } }];
+        row.cells.forEach(c => {
+          if (c.type === "break") {
+            out.push({ content: "Break", styles: { fillColor: [245, 245, 245], textColor: [150, 150, 150], fontStyle: 'italic' } });
+          } else if (c.type === "free") {
+            out.push({ content: "-", styles: { textColor: [190, 190, 190] } });
           } else {
-            const uniqueMap = new Map();
-            foundLessons.forEach(l => {
-              const key = `${l.teacher}|||${l.subject}`;
-              if (!uniqueMap.has(key)) uniqueMap.set(key, l);
-            });
-
-            const uniqueLessons = Array.from(uniqueMap.values());
-            const cellContent = uniqueLessons.map(l => {
-              return summaryNeedsDayLabel(klass)
-                ? `${l.teacher} (${l.subject}) [${dayAbbr(l.day)}]`
-                : `${l.teacher} (${l.subject})`;
-            }).join("\n");
-            row.push(cellContent);
+            const text = c.lessons.map(l => `${l.teacher}\n(${l.subject})`).join("\n") + (c.is80 ? "\n[80 min]" : "");
+            out.push({ content: text, colSpan: c.span, styles: c.is80 ? { fillColor: [255, 243, 205], fontStyle: 'bold' } : {} });
           }
+        });
+        return out;
+      });
+      const noteFor = day => {
+        const eighty = dayEightyList(day);
+        return "80-minute periods today: " + (eighty.length
+          ? eighty.map(x => `${x.klass} - ${x.teacher} (${x.subject}) P${x.p}-${x.p + 1}`).join("   |   ")
+          : "none");
+      };
+      // Draws one day onto d at font size fs; returns where the note can start (y).
+      const drawDay = (d, day, fs) => {
+        d.setFontSize(isA3 ? 16 : 12);
+        d.setTextColor(74, 108, 247);
+        d.text(SCHOOL_NAME, W / 2, isA3 ? 24 : 18, { align: 'center' });
+        d.setFontSize(isA3 ? 12 : 10);
+        d.setTextColor(0);
+        d.text(`Day-wise Timetable - ${day}`, W / 2, isA3 ? 40 : 31, { align: 'center' });
+        const classW = isA3 ? 60 : 46, breakW = isA3 ? 34 : 26;
+        const nBreak = slots.filter(x => x.period === "break").length;
+        const periodW = (W - 2 * ML - classW - nBreak * breakW) / (slots.length - nBreak);
+        const colStyles = { 0: { cellWidth: classW, halign: 'left' } };
+        slots.forEach((sl, i) => { colStyles[i + 1] = { cellWidth: sl.period === "break" ? breakW : periodW }; });
+        d.autoTable({
+          head: [headers], body: bodyFor(day),
+          tableWidth: W - 2 * ML,
+          startY: isA3 ? 50 : 38,
+          styles: { fontSize: fs, cellPadding: fs >= 8 ? 2.5 : (fs >= 6 ? 1.6 : 1), valign: 'middle', halign: 'center', lineColor: [180, 180, 180], lineWidth: 0.2, overflow: 'linebreak' },
+          headStyles: { fillColor: [74, 108, 247], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
+          columnStyles: colStyles,
+          margin: { left: ML, right: ML, top: isA3 ? 50 : 38, bottom: 14 },
+          rowPageBreak: 'avoid',
+          showHead: 'everyPage'
+        });
+        return d.lastAutoTable.finalY;
+      };
+
+      const printDays = (viewMode === "daywise" && dayWiseDay !== "All") ? [dayWiseDay] : DAYS;
+      printDays.forEach((day, di) => {
+        // Pick the largest font at which EVERY class row + the 80-min note fit on one page.
+        const noteFs = isA3 ? 10 : 7.5;
+        let chosen = sizes[sizes.length - 1];
+        for (const fs of sizes) {
+          const scratch = new jsPDF({ orientation: "landscape", unit: "pt", format });
+          const endY = drawDay(scratch, day, fs);
+          scratch.setFontSize(noteFs);
+          const nLines = scratch.splitTextToSize(noteFor(day), W - 2 * ML).length;
+          if (scratch.internal.getNumberOfPages() === 1 && endY + 12 + nLines * 10 <= H - 16) { chosen = fs; break; }
         }
-        tableData.push(row);
-      }
-
-      // ========================================
-      // A4 TABLE - FIT TO ONE PAGE
-      // ========================================
-        doc.autoTable({
-        head: [headers],
-        body: tableData,
-        startY: yPos + 5,
-        styles: {
-          fontSize: 6.3,
-          cellPadding: 0.9,
-          valign: 'middle',
-          halign: 'center',
-          lineColor: [180, 180, 180],
-          lineWidth: 0.2,
-          overflow: 'linebreak'
-        },
-        headStyles: {
-          fillColor: [74, 108, 247],
-          textColor: [255, 255, 255],
-          fontSize: 6.3,
-          fontStyle: 'bold',
-          halign: 'center',
-          valign: 'middle'
-        },
-        columnStyles: {
-          0: {
-            cellWidth: 36,
-            fontSize: 6.3,
-            fontStyle: 'bold',
-            halign: 'left'
-          }
-        },
-        bodyStyles: {
-          valign: 'middle',
-          halign: 'center',
-          fontSize: 6.3
-        },
-        didDrawCell: function(data) {
-          if (headers[data.column.index] === "Break") {
-            data.cell.styles.fillColor = [245, 245, 245];
-            data.cell.styles.fontStyle = 'italic';
-            data.cell.styles.textColor = [150, 150, 150];
-            data.cell.styles.fontSize = 7;
-          }
-          if (data.cell.raw === "") data.cell.styles.textColor = [200, 200, 200];
-        },
-        margin: { left: 12, right: 12, top: yPos + 5, bottom: 10 },
-        pageBreak: 'auto',
-        showHead: 'everyPage',
-        tableWidth: 'auto'
+        if (di > 0) doc.addPage();
+        const endY = drawDay(doc, day, chosen);
+        doc.setFontSize(noteFs);
+        doc.setTextColor(60);
+        const lines = doc.splitTextToSize(noteFor(day), W - 2 * ML);
+        let yy = endY + 12;
+        if (yy + lines.length * 10 > H - 16) { doc.addPage(); yy = 30; }
+        doc.text(lines, ML, yy);
       });
 
-      // The compact A4 typography above is intentionally sized for the full summary.
-      // This keeps the Summary View on A4 landscape instead of reverting to the old
-      // current-grid/table print behaviour.
-
-      // ========================================
-      // FOOTER - same idea as A3 Summary
-      // ========================================
       const totalPages = doc.internal.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
         doc.setFontSize(6);
         doc.setTextColor(150, 150, 150);
-        doc.text(`Page ${i} of ${totalPages}`, pageWidth - 40, pageHeight - 8);
-        doc.text(SCHOOL_NAME, centerX, pageHeight - 8, { align: 'center' });
+        doc.text(`Page ${i} of ${totalPages}`, W - 40, H - 8);
+        doc.text(SCHOOL_NAME, W / 2, H - 8, { align: 'center' });
       }
 
-      // ========================================
-      // OPEN FOR PRINT + MOBILE FALLBACK
-      // ========================================
-      const pdfBlob = doc.output('blob');
-      const pdfUrl = URL.createObjectURL(pdfBlob);
-
+      const pdfUrl = URL.createObjectURL(doc.output('blob'));
       if (printWin && !printWin.closed) {
         printWin.location.href = pdfUrl;
-        try {
-          printWin.addEventListener('load', () => {
-            setTimeout(() => { try { printWin.print(); } catch (e) {} }, 400);
-          });
-        } catch (e) {}
-        showMessage("📄 A4 Summary PDF ready — opening for print...", "ok");
+        try { printWin.addEventListener('load', () => { setTimeout(() => { try { printWin.print(); } catch (e) {} }, 400); }); } catch (e) {}
+        showMessage(`📄 Day-wise ${format.toUpperCase()} PDF ready - opening for print...`, "ok");
       } else {
         const a = document.createElement('a');
         a.href = pdfUrl;
-        a.download = `Summary_Timetable_A4_${new Date().toISOString().slice(0, 10)}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        showMessage("📄 Pop-up was blocked, so the A4 Summary PDF downloaded instead.", "warn");
+        a.download = `Daywise_Timetable_${format.toUpperCase()}_${new Date().toISOString().slice(0, 10)}.pdf`;
+        document.body.appendChild(a); a.click(); a.remove();
+        showMessage("📄 Pop-up was blocked, so the Day-wise PDF downloaded instead.", "warn");
       }
-
       setTimeout(() => URL.revokeObjectURL(pdfUrl), 60000);
       hideLoading();
-
     } catch (e) {
-      console.error('A4 Summary print error:', e);
+      console.error('Day-wise print error:', e);
       hideLoading();
       if (printWin && !printWin.closed) printWin.close();
-      showMessage("Error generating A4 Summary: " + e.message, "error");
+      showMessage("Error generating Day-wise PDF: " + e.message, "error");
+    }
+  }, 100);
+}
+document.getElementById("print-daywise-a4-btn")?.addEventListener("click", () => printDayWise("a4"));
+document.getElementById("print-daywise-a3-btn")?.addEventListener("click", () => printDayWise("a3"));
+
+// ============================================
+// SENIOR CLASSES (9th-12th, A & B) SUMMARY: PRINT + EXCEL, AND A3 SUMMARY EXCEL
+// ============================================
+const SENIOR_TARGET_KEYS = ['9a','9b','10a','10b','11a','11b','12a','12b'];
+function normClassKey(k) {
+  return String(k || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/^(\d+)(?:th|st|nd|rd)/, '$1');
+}
+function getSeniorClasses() {
+  const all = allScheduleClasses();
+  const found = [], missing = [];
+  SENIOR_TARGET_KEYS.forEach(key => {
+    const k = all.find(c => normClassKey(c) === key);
+    if (k) found.push(k); else missing.push(key.replace(/(\d+)([ab])/, (m, n, s) => `${n}th-${s.toUpperCase()}`));
+  });
+  return { found, missing };
+}
+// Same cell text as the A3/A4 Summary PDFs, built from the live schedule slots.
+function buildSummaryMatrix(classList) {
+  const slots = schedule.slots;
+  const headers = ["Class", ...slots.map(s => s.period === "break" ? "Break" : `P${s.period}\n${s.start}-${s.end}`)];
+  const rows = classList.map(klass => [klass, ...slots.map(s => {
+    if (s.period === "break") return "Break";
+    const cl = getSummaryCellLessons(klass, s.period);
+    return cl.length ? cl.map(l => summaryLessonText(l, klass)).join("\n") : "";
+  })]);
+  return { headers, rows, slots };
+}
+function classTeacherLine(classList) {
+  const ct = {};
+  entries.forEach(e => {
+    if (!ct[e.klass]) ct[e.klass] = { ct: '', co: '' };
+    if (e.classTeacher) ct[e.klass].ct = e.classTeacher;
+    if (e.coClassTeacher) ct[e.klass].co = e.coClassTeacher;
+  });
+  return "Class Teachers: " + classList.map(k => {
+    const i = ct[k] || { ct: '-', co: '' };
+    return `${k}: ${i.ct || '-'}${i.co ? ` (Co: ${i.co})` : ''}`;
+  }).join(" | ");
+}
+const EXCEL_SCHOOL_NAME = "PM SHRI SHAHID INDER GIRI GOVT HSS RAMPUR";
+
+async function downloadSummaryExcel(classList, subtitle, fileName, paper, fitOnePage) {
+  const { headers, rows, slots } = buildSummaryMatrix(classList);
+  const ctLine = classTeacherLine(classList);
+
+  // Fallback if ExcelJS could not load (offline): plain SheetJS file, no colours.
+  if (typeof ExcelJS === 'undefined') {
+    const aoa = [[EXCEL_SCHOOL_NAME], [subtitle], [], headers.map(h => h.replace("\n", " ")),
+      ...rows.map(r => r.map(c => String(c).replace(/\n/g, " / "))), [], [ctLine]];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), "Summary");
+    XLSX.writeFile(wb, fileName);
+    return;
+  }
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Summary", {
+    pageSetup: {
+      orientation: 'landscape', paperSize: paper === 'a3' ? 8 : 9,
+      fitToPage: true, fitToWidth: 1, fitToHeight: fitOnePage ? 1 : 0,
+      margins: { left: 0.3, right: 0.3, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 }
+    }
+  });
+  const nCols = headers.length;
+  ws.columns = headers.map((h, i) => ({ width: i === 0 ? 11 : (slots[i - 1].period === "break" ? 8 : 30) }));
+
+  const border = { top: {style:'thin', color:{argb:'FFB4B4B4'}}, left: {style:'thin', color:{argb:'FFB4B4B4'}}, bottom: {style:'thin', color:{argb:'FFB4B4B4'}}, right: {style:'thin', color:{argb:'FFB4B4B4'}} };
+
+  ws.mergeCells(1, 1, 1, nCols);
+  const t1 = ws.getCell(1, 1);
+  t1.value = EXCEL_SCHOOL_NAME;
+  t1.font = { bold: true, size: 16, color: { argb: 'FF4A6CF7' } };
+  t1.alignment = { horizontal: 'center', vertical: 'middle' };
+  ws.getRow(1).height = 24;
+
+  ws.mergeCells(2, 1, 2, nCols);
+  const t2 = ws.getCell(2, 1);
+  t2.value = subtitle;
+  t2.font = { bold: true, size: 12 };
+  t2.alignment = { horizontal: 'center', vertical: 'middle' };
+  ws.getRow(2).height = 18;
+
+  const hr = ws.getRow(3);
+  headers.forEach((h, i) => {
+    const c = hr.getCell(i + 1);
+    c.value = h;
+    c.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4A6CF7' } };
+    c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    c.border = border;
+  });
+  hr.height = 30;
+
+  rows.forEach((r, ri) => {
+    const row = ws.getRow(4 + ri);
+    let maxLines = 1;
+    r.forEach((val, ci) => {
+      const c = row.getCell(ci + 1);
+      c.value = val;
+      c.border = border;
+      c.alignment = { horizontal: ci === 0 ? 'left' : 'center', vertical: 'middle', wrapText: true };
+      const isBreak = ci > 0 && slots[ci - 1].period === "break";
+      if (ci === 0) c.font = { bold: true, size: 11 };
+      else if (isBreak) {
+        c.font = { italic: true, color: { argb: 'FF969696' }, size: 9 };
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F5F5' } };
+      } else {
+        c.font = { size: 10 };
+        if (String(val).indexOf('80min') !== -1) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } };
+      }
+      if (!isBreak && ci > 0) maxLines = Math.max(maxLines, String(val).split("\n").length);
+    });
+    row.height = Math.max(24, maxLines * 14 + 4);
+  });
+
+  const fr = 4 + rows.length + 1;
+  ws.mergeCells(fr, 1, fr, nCols);
+  const fc = ws.getCell(fr, 1);
+  fc.value = ctLine;
+  fc.font = { size: 10, italic: true };
+  fc.alignment = { wrapText: true, vertical: 'top' };
+  ws.getRow(fr).height = 30;
+
+  ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 3 }];
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = fileName;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+function excelStamp() { return new Date().toISOString().slice(0, 10); }
+
+// --- Button: Current A3 Summary -> Excel (all classes, same layout as the A3 print)
+document.getElementById("excel-summary-a3-btn")?.addEventListener("click", async () => {
+  if (!schedule) { showMessage('Generate timetable first', "error"); return; }
+  try {
+    const classes = [...new Set(entries.map(e => e.klass))].sort((a, b) => (parseInt(a) || 0) - (parseInt(b) || 0));
+    await downloadSummaryExcel(classes, "Summary Timetable", `Summary_Timetable_A3_${excelStamp()}.xlsx`, 'a3', false);
+    showMessage("📊 A3 Summary Excel exported!", "ok");
+  } catch (e) { console.error(e); showMessage("Excel export error: " + e.message, "error"); }
+});
+
+// --- Button: 9th-12th (A & B) Summary -> Excel
+document.getElementById("excel-senior-btn")?.addEventListener("click", async () => {
+  if (!schedule) { showMessage('Generate timetable first', "error"); return; }
+  const { found, missing } = getSeniorClasses();
+  if (!found.length) { showMessage("No 9th-12th A/B classes found in the timetable.", "error"); return; }
+  try {
+    await downloadSummaryExcel(found, "Summary Timetable - Classes 9th to 12th", `Summary_9th_to_12th_${excelStamp()}.xlsx`, 'a4', true);
+    showMessage(missing.length ? `📊 Excel exported. Not found in data: ${missing.join(", ")}` : "📊 9th-12th Summary Excel exported!", missing.length ? "warn" : "ok");
+  } catch (e) { console.error(e); showMessage("Excel export error: " + e.message, "error"); }
+});
+
+// --- Button: Print 9th-12th (A & B) Summary (A4 landscape, auto-shrinks to fit 1 page)
+// ============================================
+// SHARED SUMMARY PDF BUILDER (A3 summary, A4 summary, 9th-12th summary)
+// One code path -> identical look everywhere. Times always come from schedule.slots.
+// Picks the largest font at which the whole table fits on ONE page.
+// ============================================
+function buildSummaryPdf(format, classList, subtitle, withTeacherLine) {
+  const { jsPDF } = window.jspdf;
+  const isA3 = format === 'a3';
+  const { headers, rows, slots } = buildSummaryMatrix(classList);
+  const ctLine = withTeacherLine ? classTeacherLine(classList) : '';
+  const sizes = isA3 ? [11, 10.5, 10, 9.5, 9, 8.5, 8, 7.5, 7, 6.5, 6, 5.5, 5]
+                     : [9, 8.5, 8, 7.5, 7, 6.5, 6, 5.5, 5, 4.5, 4];
+  const ML = isA3 ? 20 : 14;
+  const classW = isA3 ? 46 : 36, breakW = isA3 ? 34 : 26;
+
+  const draw = (fs) => {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format });
+    const W = doc.internal.pageSize.width, H = doc.internal.pageSize.height;
+    doc.setFontSize(isA3 ? 18 : 13);
+    doc.setTextColor(74, 108, 247);
+    doc.text(EXCEL_SCHOOL_NAME, W / 2, isA3 ? 26 : 20, { align: 'center' });
+    doc.setFontSize(isA3 ? 12 : 9.5);
+    doc.setTextColor(0);
+    doc.text(subtitle, W / 2, isA3 ? 42 : 32, { align: 'center' });
+
+    const nPeriodCols = slots.filter(s => s.period !== 'break').length;
+    const nBreakCols = slots.length - nPeriodCols;
+    const periodW = (W - 2 * ML - classW - nBreakCols * breakW) / nPeriodCols;
+    const columnStyles = { 0: { cellWidth: classW, halign: 'left', fontStyle: 'bold' } };
+    slots.forEach((sl, i) => { columnStyles[i + 1] = { cellWidth: sl.period === 'break' ? breakW : periodW }; });
+
+    const ctFs = isA3 ? 9 : 6.5, ctLh = isA3 ? 10.5 : 7.5;
+    doc.setFontSize(ctFs);
+    const ctLines = ctLine ? doc.splitTextToSize(ctLine, W - 2 * ML) : [];
+    doc.autoTable({
+      head: [headers], body: rows,
+      startY: isA3 ? 52 : 40,
+      tableWidth: W - 2 * ML,
+      theme: 'grid',
+      styles: { fontSize: fs, cellPadding: fs >= 8 ? 2.5 : 1.5, valign: 'middle', halign: 'center', lineColor: [170, 170, 170], lineWidth: 0.3, overflow: 'linebreak', textColor: [30, 30, 30] },
+      headStyles: { fillColor: [74, 108, 247], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: Math.min(fs, isA3 ? 9 : 7) },
+      columnStyles,
+      rowPageBreak: 'avoid',
+      showHead: 'everyPage',
+      didParseCell: function (d) {
+        if (d.section !== 'body') return;
+        if (d.column.index === 0) { d.cell.styles.fillColor = [233, 238, 255]; d.cell.styles.textColor = [74, 108, 247]; return; }
+        const isBreak = slots[d.column.index - 1] && slots[d.column.index - 1].period === 'break';
+        if (isBreak) { d.cell.styles.fillColor = [240, 240, 240]; d.cell.styles.textColor = [140, 140, 140]; d.cell.styles.fontStyle = 'italic'; d.cell.styles.fontSize = Math.max(4, fs - 1.5); return; }
+        if (typeof d.cell.raw === 'string' && d.cell.raw.indexOf('80min') !== -1) d.cell.styles.fillColor = [255, 243, 205];
+      },
+      margin: { left: ML, right: ML, top: isA3 ? 52 : 40, bottom: 20 + (ctLines.length ? ctLines.length * ctLh + 10 : 0) }
+    });
+    if (ctLines.length) {
+      doc.setFontSize(ctFs);
+      doc.setTextColor(60);
+      doc.text(ctLines, ML, H - 20 - (ctLines.length - 1) * ctLh);
+    }
+    return doc;
+  };
+
+  let doc = null;
+  for (const fs of sizes) { doc = draw(fs); if (doc.internal.getNumberOfPages() === 1) break; }
+  const W = doc.internal.pageSize.width, H = doc.internal.pageSize.height;
+  const total = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= total; i++) {
+    doc.setPage(i); doc.setFontSize(6); doc.setTextColor(150, 150, 150);
+    doc.text(`Page ${i} of ${total}`, W - 40, H - 6);
+    doc.text(EXCEL_SCHOOL_NAME, W / 2, H - 6, { align: 'center' });
+  }
+  return doc;
+}
+// Opens the finished PDF in the tab opened on click (popup-safe), or downloads it as a fallback.
+function openPdfForPrint(doc, printWin, fileName, okMsg) {
+  const pdfUrl = URL.createObjectURL(doc.output('blob'));
+  if (printWin && !printWin.closed) {
+    printWin.location.href = pdfUrl;
+    try { printWin.addEventListener('load', () => { setTimeout(() => { try { printWin.print(); } catch (e) {} }, 400); }); } catch (e) {}
+    showMessage(okMsg, "ok");
+  } else {
+    const a = document.createElement('a');
+    a.href = pdfUrl; a.download = fileName;
+    document.body.appendChild(a); a.click(); a.remove();
+    showMessage("📄 Pop-up was blocked, so the PDF downloaded instead. Open it and print from there.", "warn");
+  }
+  setTimeout(() => URL.revokeObjectURL(pdfUrl), 60000);
+}
+function runSummaryPrint(format, getClasses, subtitle, fileName, okMsg, withTeacherLine) {
+  if (!schedule) { showMessage('Generate timetable first', "error"); return; }
+  const classList = getClasses();
+  if (!classList || !classList.length) { showMessage("No matching classes found in the timetable.", "error"); return; }
+  const printWin = window.open('', '_blank');
+  showLoading();
+  setTimeout(() => {
+    try {
+      const doc = buildSummaryPdf(format, classList, subtitle, withTeacherLine);
+      openPdfForPrint(doc, printWin, fileName, okMsg);
+      hideLoading();
+    } catch (e) {
+      console.error('Summary print error:', e);
+      hideLoading();
+      if (printWin && !printWin.closed) printWin.close();
+      showMessage("Error generating PDF: " + e.message, "error");
+    }
+  }, 100);
+}
+function allSummaryClasses() {
+  return [...new Set(entries.map(e => e.klass))].sort((a, b) => (parseInt(a) || 0) - (parseInt(b) || 0));
+}
+document.getElementById("print-summary-btn")?.addEventListener("click", () =>
+  runSummaryPrint('a3', allSummaryClasses, 'Summary Timetable', `Summary_Timetable_A3_${new Date().toISOString().slice(0, 10)}.pdf`, "📄 A3 Summary PDF ready — opening for print...", true));
+document.getElementById("print-a4-btn")?.addEventListener("click", () =>
+  runSummaryPrint('a4', allSummaryClasses, 'Summary Timetable', `Summary_Timetable_A4_${new Date().toISOString().slice(0, 10)}.pdf`, "📄 A4 Summary PDF ready — opening for print...", true));
+document.getElementById("print-senior-btn")?.addEventListener("click", () => {
+  if (!schedule) { showMessage('Generate timetable first', "error"); return; }
+  const { found, missing } = getSeniorClasses();
+  if (missing.length && found.length) showMessage(`Printing available classes. Not found in data: ${missing.join(", ")}`, "warn");
+  runSummaryPrint('a4', () => found, 'Summary Timetable - Classes 9th to 12th', `Summary_9th_to_12th_${new Date().toISOString().slice(0, 10)}.pdf`, "📄 9th-12th Summary PDF ready — opening for print...", true);
+});
+// ============================================
+// REPORTS: GUEST TEACHERS (Excel), PERIOD-7 PAGE (print), REMEDIAL 9th-10th (print)
+// ============================================
+const REPORT_DAYS_SHORT = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat' };
+function classesByKeys(keys) {
+  const all = allScheduleClasses();
+  return keys.map(k => all.find(c => normClassKey(c) === k)).filter(Boolean);
+}
+function slotTime(periodNum) {
+  const s = schedule.slots.find(x => x.period === periodNum);
+  return s ? `${s.start}-${s.end}` : '';
+}
+function lessonCellText(l) {
+  const tag = block80Tag(l);
+  return `${l.teacher}\n(${l.subject})` + (tag ? `\n[${tag.replace('80min', '80 min')}]` : '');
+}
+
+// ---------- 1. GUEST TEACHERS ----------
+// A teacher counts as a guest if ANY of their rows in the sheet says Guest.
+function guestTeacherInfo() {
+  const guests = new Set();
+  entries.forEach(e => { if (e.staffType === 'Guest') guests.add(e.teacher); });
+  return { guests: [...guests].sort((a, b) => a.localeCompare(b)), mixed: [] };
+}
+// Distinct (day, period) slots per guest. Two classes taught together by the same
+// teacher in the same period (combined lesson) count as ONE period; an 80-min block counts as two.
+function buildGuestReport() {
+  const { guests, mixed } = guestTeacherInfo();
+  const set = new Set(guests);
+  const data = {};
+  guests.forEach(t => { data[t] = { counts: {}, subjects: new Set(), details: [] }; DAYS.forEach(d => data[t].counts[d] = 0); });
+  for (const day of DAYS) {
+    for (let p = 1; p <= schedule.periods; p++) {
+      const bucket = {};
+      ((schedule.grid[day] && schedule.grid[day][p]) || []).forEach(l => {
+        if (!set.has(l.teacher)) return;
+        if (!bucket[l.teacher]) bucket[l.teacher] = { classes: [], subjects: [] };
+        if (!bucket[l.teacher].classes.includes(l.klass)) bucket[l.teacher].classes.push(l.klass);
+        if (!bucket[l.teacher].subjects.includes(l.subject)) bucket[l.teacher].subjects.push(l.subject);
+      });
+      Object.keys(bucket).forEach(t => {
+        data[t].counts[day]++;
+        bucket[t].subjects.forEach(s => data[t].subjects.add(s));
+        data[t].details.push({ day, period: p, time: slotTime(p), classes: bucket[t].classes.join(', '), subjects: bucket[t].subjects.join(', ') });
+      });
+    }
+  }
+  return { guests, mixed, data };
+}
+async function downloadGuestReportExcel() {
+  if (!schedule) { showMessage('Generate timetable first', "error"); return; }
+  const rep = buildGuestReport();
+  if (!rep.guests.length) {
+    showMessage("No guest teachers found. Add a column named 'Guest' to your Excel (write anything, e.g. Guest, against each guest teacher's rows) and import again.", "error");
+    return;
+  }
+  const head = ["Guest Teacher", "Subjects", ...DAYS.map(d => REPORT_DAYS_SHORT[d]), "Total / Week"];
+  const rows = rep.guests.map(t => {
+    const d = rep.data[t];
+    const total = DAYS.reduce((a, day) => a + d.counts[day], 0);
+    return [t, [...d.subjects].join(", "), ...DAYS.map(day => d.counts[day]), total];
+  });
+  const totals = ["TOTAL", "", ...DAYS.map((day, i) => rows.reduce((a, r) => a + r[2 + i], 0)), rows.reduce((a, r) => a + r[2 + DAYS.length], 0)];
+  const detHead = ["Guest Teacher", "Day", "Period", "Time", "Class(es)", "Subject"];
+  const detRows = [];
+  rep.guests.forEach(t => rep.data[t].details.forEach(x => detRows.push([t, x.day, `P${x.period}`, x.time, x.classes, x.subjects])));
+  const note = "A period is counted once even if the guest teaches several classes together in it; an 80-minute block counts as 2 periods."
+    + (rep.mixed.length ? `  CHECK: marked both Guest and Permanent in the sheet: ${rep.mixed.join(", ")}.` : "");
+  const fileName = `Guest_Teachers_Report_${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+  try {
+    if (typeof ExcelJS === 'undefined') {
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([head, ...rows, totals, [], [note]]), "Guest Periods per Day");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([detHead, ...detRows]), "Guest Details");
+      XLSX.writeFile(wb, fileName);
+    } else {
+      const wb = new ExcelJS.Workbook();
+      const border = { top: {style:'thin', color:{argb:'FFB4B4B4'}}, left: {style:'thin', color:{argb:'FFB4B4B4'}}, bottom: {style:'thin', color:{argb:'FFB4B4B4'}}, right: {style:'thin', color:{argb:'FFB4B4B4'}} };
+      const styleHead = (row) => row.eachCell(c => {
+        c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4A6CF7' } };
+        c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        c.border = border;
+      });
+      // Sheet 1
+      const ws = wb.addWorksheet("Guest Periods per Day", { pageSetup: { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+      ws.columns = [{ width: 30 }, { width: 34 }, ...DAYS.map(() => ({ width: 9 })), { width: 13 }];
+      ws.mergeCells(1, 1, 1, head.length);
+      ws.getCell(1, 1).value = `${EXCEL_SCHOOL_NAME} - Guest Teachers: Periods per Day`;
+      ws.getCell(1, 1).font = { bold: true, size: 14, color: { argb: 'FF4A6CF7' } };
+      ws.getCell(1, 1).alignment = { horizontal: 'center' };
+      styleHead(ws.addRow(head));
+      rows.forEach(r => {
+        const row = ws.addRow(r);
+        row.eachCell((c, i) => { c.border = border; c.alignment = { horizontal: i <= 2 ? 'left' : 'center', vertical: 'middle', wrapText: true }; });
+        row.getCell(1).font = { bold: true };
+        row.getCell(head.length).font = { bold: true };
+        row.getCell(head.length).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE9EEFF' } };
+      });
+      const tr = ws.addRow(totals);
+      tr.eachCell(c => { c.font = { bold: true }; c.border = border; c.alignment = { horizontal: 'center' }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } }; });
+      tr.getCell(1).alignment = { horizontal: 'left' };
+      ws.mergeCells(ws.rowCount + 2, 1, ws.rowCount + 2, head.length);
+      const nc = ws.getCell(ws.rowCount, 1);
+      nc.value = note; nc.font = { italic: true, size: 9 }; nc.alignment = { wrapText: true, vertical: 'top' };
+      ws.getRow(ws.rowCount).height = 30;
+      ws.views = [{ state: 'frozen', ySplit: 2 }];
+      // Sheet 2
+      const ws2 = wb.addWorksheet("Guest Details", { pageSetup: { orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+      ws2.columns = [{ width: 30 }, { width: 12 }, { width: 9 }, { width: 14 }, { width: 24 }, { width: 28 }];
+      styleHead(ws2.addRow(detHead));
+      detRows.forEach(r => { const row = ws2.addRow(r); row.eachCell(c => { c.border = border; c.alignment = { vertical: 'middle', wrapText: true }; }); });
+      ws2.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: detHead.length } };
+      ws2.views = [{ state: 'frozen', ySplit: 1 }];
+      const buf = await wb.xlsx.writeBuffer();
+      const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      const a = document.createElement('a'); a.href = url; a.download = fileName;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    }
+    showMessage(rep.mixed.length ? `📊 Guest report exported. Check: ${rep.mixed.join(", ")} marked both Guest and Permanent.` : `📊 Guest report exported (${rep.guests.length} guest teachers).`, rep.mixed.length ? "warn" : "ok");
+  } catch (e) { console.error(e); showMessage("Guest report error: " + e.message, "error"); }
+}
+document.getElementById("guest-report-btn")?.addEventListener("click", downloadGuestReportExcel);
+
+// ---------- 2. PERIOD-7 PAGE (own sheet of paper, clearly called out) ----------
+function buildPeriodPagePdf(periodNo) {
+  const { jsPDF } = window.jspdf;
+  const classes = allScheduleClasses();
+  const timeStr = slotTime(periodNo).replace('-', ' - ');
+  const body = classes.map(klass => [
+    { content: klass, styles: { fontStyle: 'bold', halign: 'left', fillColor: [255, 236, 224], textColor: [217, 72, 15] } },
+    ...DAYS.map(day => {
+      const ls = ((schedule.grid[day] && schedule.grid[day][periodNo]) || []).filter(l => l.klass === klass);
+      if (!ls.length) return { content: '-', styles: { textColor: [190, 190, 190] } };
+      return { content: ls.map(lessonCellText).join('\n'), styles: ls.some(l => l.isDouble) ? { fillColor: [255, 243, 205] } : {} };
+    })
+  ]);
+  const sizes = [11, 10.5, 10, 9.5, 9, 8.5, 8, 7.5, 7, 6.5, 6, 5.5, 5];
+  const draw = fs => {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+    const W = doc.internal.pageSize.width, H = doc.internal.pageSize.height, ML = 18;
+    doc.setFontSize(10); doc.setTextColor(90);
+    doc.text(EXCEL_SCHOOL_NAME, W / 2, 16, { align: 'center' });
+    doc.setFillColor(217, 72, 15);
+    doc.roundedRect(ML, 22, W - 2 * ML, 44, 4, 4, 'F');
+    doc.setTextColor(255); doc.setFontSize(26);
+    doc.text(`PERIOD ${periodNo}`, ML + 16, 54);
+    doc.setFontSize(15);
+    doc.text(`${timeStr}${periodNo === schedule.periods ? '   |   LAST PERIOD' : ''}`, W - ML - 16, 52, { align: 'right' });
+    doc.autoTable({
+      head: [["Class", ...DAYS]], body,
+      startY: 74, tableWidth: W - 2 * ML, theme: 'grid',
+      styles: { fontSize: fs, cellPadding: fs >= 8 ? 2.5 : 1.5, valign: 'middle', halign: 'center', lineColor: [170, 170, 170], lineWidth: 0.3, overflow: 'linebreak', textColor: [30, 30, 30] },
+      headStyles: { fillColor: [217, 72, 15], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: Math.min(fs + 1, 11) },
+      columnStyles: { 0: { cellWidth: 56 } },
+      rowPageBreak: 'avoid', showHead: 'everyPage',
+      margin: { left: ML, right: ML, top: 74, bottom: 22 }
+    });
+    return doc;
+  };
+  let doc = null;
+  for (const fs of sizes) { doc = draw(fs); if (doc.internal.getNumberOfPages() === 1) break; }
+  const W = doc.internal.pageSize.width, H = doc.internal.pageSize.height, total = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= total; i++) {
+    doc.setPage(i); doc.setFontSize(6); doc.setTextColor(150);
+    doc.text(`Period ${periodNo} - Page ${i} of ${total}`, W - 18, H - 6, { align: 'right' });
+  }
+  return doc;
+}
+document.getElementById("print-period7-btn")?.addEventListener("click", () => {
+  if (!schedule) { showMessage('Generate timetable first', "error"); return; }
+  if (schedule.periods < 7) { showMessage("The timetable has fewer than 7 periods.", "error"); return; }
+  const printWin = window.open('', '_blank');
+  showLoading();
+  setTimeout(() => {
+    try {
+      openPdfForPrint(buildPeriodPagePdf(7), printWin, `Period_7_${new Date().toISOString().slice(0, 10)}.pdf`, "📄 Period 7 page ready — opening for print...");
+      hideLoading();
+    } catch (e) {
+      console.error(e); hideLoading();
+      if (printWin && !printWin.closed) printWin.close();
+      showMessage("Error generating Period 7 page: " + e.message, "error");
     }
   }, 100);
 });
+
+// ---------- 3. REMEDIAL TIMETABLE: 9th-A, 9th-B, 10th-A, 10th-B ----------
+// "Remedial" = the 80-minute block of these classes, so it is picked purely from timing.
+// Laid out day by day (Monday to Friday), one column per class. A Saturday row is added only
+// when one of these classes actually has an 80-minute block on Saturday, so nothing is dropped.
+function remedialBlocks(klass, day) {
+  const out = [];
+  const ph = schedule.periods;
+  for (let p = 1; p <= ph; p++) {
+    ((schedule.grid[day] && schedule.grid[day][p]) || []).forEach(l => {
+      if (l.klass === klass && l.isDouble && !l.isDoublePart) out.push({ l, a: p, b: p + 1 });
+    });
+  }
+  return out;
+}
+function buildRemedialPdf(classes) {
+  const { jsPDF } = window.jspdf;
+  let days = DAYS.slice(0, 5);
+  const satHas = classes.some(k => remedialBlocks(k, 'Saturday').length);
+  if (satHas) days = [...days, 'Saturday'];
+  let count = 0;
+  const body = days.map(day => [
+    { content: day, styles: { fontStyle: 'bold', halign: 'center', fillColor: [233, 238, 255], textColor: [74, 108, 247] } },
+    ...classes.map(klass => {
+      const blocks = remedialBlocks(klass, day);
+      if (!blocks.length) return { content: '-', styles: { textColor: [190, 190, 190] } };
+      count += blocks.length;
+      const text = blocks.map(x => {
+        const st = schedule.slots.find(sl => sl.period === x.a), en = schedule.slots.find(sl => sl.period === x.b);
+        return `${x.l.teacher}\n(${x.l.subject})\nP${x.a}-P${x.b}  |  ${st ? st.start : ''} - ${en ? en.end : ''}`;
+      }).join('\n\n');
+      return { content: text, styles: { fillColor: [220, 245, 228] } };
+    })
+  ]);
+  if (!count) return null;
+  const sizes = [15, 14, 13, 12, 11, 10, 9, 8, 7];
+  const draw = fs => {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+    const W = doc.internal.pageSize.width, ML = 28;
+    doc.setFontSize(18); doc.setTextColor(74, 108, 247);
+    doc.text(EXCEL_SCHOOL_NAME, W / 2, 28, { align: 'center' });
+    doc.setFontSize(14); doc.setTextColor(0);
+    doc.text('Remedial Timetable (80-minute periods)', W / 2, 48, { align: 'center' });
+    doc.setFontSize(10); doc.setTextColor(90);
+    doc.text(satHas ? 'Monday to Friday (plus Saturday where applicable)' : 'Monday to Friday', W / 2, 62, { align: 'center' });
+    doc.autoTable({
+      head: [['Day', ...classes]], body, startY: 72, tableWidth: W - 2 * ML, theme: 'grid',
+      styles: { fontSize: fs, cellPadding: fs >= 10 ? 6 : 3, valign: 'middle', halign: 'center', lineColor: [150, 150, 150], lineWidth: 0.4, overflow: 'linebreak', textColor: [30, 30, 30], minCellHeight: fs >= 10 ? 62 : 0 },
+      headStyles: { fillColor: [74, 108, 247], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: fs + 1 },
+      columnStyles: { 0: { cellWidth: 100 } }, rowPageBreak: 'avoid',
+      margin: { left: ML, right: ML, top: 72, bottom: 24 }
+    });
+    return doc;
+  };
+  let doc = null;
+  for (const fs of sizes) { doc = draw(fs); if (doc.internal.getNumberOfPages() === 1) break; }
+  const W = doc.internal.pageSize.width, H = doc.internal.pageSize.height, total = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= total; i++) { doc.setPage(i); doc.setFontSize(6); doc.setTextColor(150); doc.text(`Page ${i} of ${total}`, W - 40, H - 6); }
+  return doc;
+}
+document.getElementById("print-remedial-btn")?.addEventListener("click", () => {
+  if (!schedule) { showMessage('Generate timetable first', "error"); return; }
+  const classes = classesByKeys(['9a', '9b', '10a', '10b']);
+  if (!classes.length) { showMessage("9th/10th A & B classes not found in the timetable.", "error"); return; }
+  const printWin = window.open('', '_blank');
+  showLoading();
+  setTimeout(() => {
+    try {
+      const doc = buildRemedialPdf(classes);
+      if (!doc) {
+        hideLoading();
+        if (printWin && !printWin.closed) printWin.close();
+        showMessage("No 80-minute (remedial) periods found for 9th/10th A & B. Generate the timetable first.", "error");
+        return;
+      }
+      openPdfForPrint(doc, printWin, `Remedial_Timetable_${new Date().toISOString().slice(0, 10)}.pdf`, "📄 Remedial timetable ready — opening for print...");
+      hideLoading();
+    } catch (e) {
+      console.error(e); hideLoading();
+      if (printWin && !printWin.closed) printWin.close();
+      showMessage("Error generating remedial timetable: " + e.message, "error");
+    }
+  }, 100);
+});
+// ---- Remedial timetable as Excel (same content/layout as the print) ----
+async function downloadRemedialExcel() {
+  if (!schedule) { showMessage('Generate timetable first', "error"); return; }
+  const classes = classesByKeys(['9a', '9b', '10a', '10b']);
+  if (!classes.length) { showMessage("9th/10th A & B classes not found in the timetable.", "error"); return; }
+  let days = DAYS.slice(0, 5);
+  if (classes.some(k => remedialBlocks(k, 'Saturday').length)) days = [...days, 'Saturday'];
+  let count = 0;
+  const cellText = (klass, day) => {
+    const blocks = remedialBlocks(klass, day);
+    count += blocks.length;
+    return blocks.map(x => {
+      const st = schedule.slots.find(sl => sl.period === x.a), en = schedule.slots.find(sl => sl.period === x.b);
+      return `${x.l.teacher}\n(${x.l.subject})\nP${x.a}-P${x.b}  |  ${st ? st.start : ''} - ${en ? en.end : ''}`;
+    }).join('\n\n');
+  };
+  const rows = days.map(day => [day, ...classes.map(k => cellText(k, day))]);
+  if (!count) { showMessage("No 80-minute (remedial) periods found for 9th/10th A & B. Generate the timetable first.", "error"); return; }
+  const fileName = `Remedial_Timetable_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  const subtitle = 'Remedial Timetable (80-minute periods) - 9th & 10th, Monday to Friday' + (days.length > 5 ? ' (plus Saturday where applicable)' : '');
+  try {
+    if (typeof ExcelJS === 'undefined') {
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[EXCEL_SCHOOL_NAME], [subtitle], [], ['Day', ...classes], ...rows.map(r => r.map(c => String(c).replace(/\n+/g, ' / ')))]), "Remedial");
+      XLSX.writeFile(wb, fileName);
+    } else {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet("Remedial", { pageSetup: { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 1 } });
+      const border = { top: {style:'thin', color:{argb:'FF999999'}}, left: {style:'thin', color:{argb:'FF999999'}}, bottom: {style:'thin', color:{argb:'FF999999'}}, right: {style:'thin', color:{argb:'FF999999'}} };
+      const n = classes.length + 1;
+      ws.columns = [{ width: 14 }, ...classes.map(() => ({ width: 30 }))];
+      ws.mergeCells(1, 1, 1, n);
+      ws.getCell(1, 1).value = EXCEL_SCHOOL_NAME;
+      ws.getCell(1, 1).font = { bold: true, size: 16, color: { argb: 'FF4A6CF7' } };
+      ws.getCell(1, 1).alignment = { horizontal: 'center' };
+      ws.mergeCells(2, 1, 2, n);
+      ws.getCell(2, 1).value = subtitle;
+      ws.getCell(2, 1).font = { bold: true, size: 12 };
+      ws.getCell(2, 1).alignment = { horizontal: 'center' };
+      const hr = ws.addRow(['Day', ...classes]);
+      hr.height = 24;
+      hr.eachCell(c => {
+        c.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4A6CF7' } };
+        c.alignment = { horizontal: 'center', vertical: 'middle' };
+        c.border = border;
+      });
+      rows.forEach(r => {
+        const row = ws.addRow(r);
+        row.height = 66;
+        row.eachCell((c, i) => {
+          c.border = border;
+          c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+          if (i === 1) { c.font = { bold: true, color: { argb: 'FF4A6CF7' } }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE9EEFF' } }; }
+          else if (c.value) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCF5E4' } };
+          else c.value = '-';
+        });
+      });
+      ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 3 }];
+      const buf = await wb.xlsx.writeBuffer();
+      const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      const a = document.createElement('a'); a.href = url; a.download = fileName;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    }
+    showMessage("📊 Remedial timetable Excel exported!", "ok");
+  } catch (e) { console.error(e); showMessage("Remedial Excel error: " + e.message, "error"); }
+}
+document.getElementById("excel-remedial-btn")?.addEventListener("click", downloadRemedialExcel);
+
+
+
+
+
 
 </script>
 
