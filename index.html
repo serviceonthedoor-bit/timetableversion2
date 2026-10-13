@@ -2218,12 +2218,140 @@ function updateUndoMenu() {
   }
 }
 
-function saveToLocalStorage() {
-  try {
-    const data = { entries, lockedLessons, dropdownOptions, timestamp: new Date().toISOString() };
-    localStorage.setItem("timetableStudioData", JSON.stringify(data));
-  } catch(e) { console.warn('Save failed', e); }
+// Fingerprint of the timetable entries. A saved/published timetable is only reused when it still
+// matches the entries it was generated from, so a stale timetable is never shown for newer data.
+function entriesSignature() {
+  const str = JSON.stringify(entries.map(e => [e.teacher, e.subject, e.klass, e.period, e.day, !!e.isDouble, e.customLessons || 0]));
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+  return entries.length + ':' + h;
 }
+// Everything needed to rebuild the app on any device: entries, locks, dropdowns AND the finished timetable.
+function buildDataSnapshot() {
+  return {
+    entries, lockedLessons, dropdownOptions,
+    schedule: schedule ? { grid: schedule.grid, periods: schedule.periods, slots: schedule.slots, lessonMinutes: schedule.lessonMinutes } : null,
+    scheduleSig: schedule ? entriesSignature() : null
+  };
+}
+
+function saveToLocalStorage() {
+  const stamp = new Date().toISOString();
+  try {
+    localStorage.setItem("timetableStudioData", JSON.stringify({ ...buildDataSnapshot(), timestamp: stamp }));
+  } catch(e) {
+    // Storage full or blocked: keep at least the entries.
+    try { localStorage.setItem("timetableStudioData", JSON.stringify({ entries, lockedLessons, dropdownOptions, timestamp: stamp })); }
+    catch(e2) { console.warn('Save failed', e2); }
+  }
+}
+
+// Applies a saved/published data object to the app (entries, locks, dropdowns).
+function applyDataObject(data) {
+  if (data.entries) {
+    entries = data.entries;
+    entries.forEach(e => {
+      if (!e.classTeacher) e.classTeacher = '';
+      if (!e.coClassTeacher) e.coClassTeacher = '';
+      if (e.period === undefined) e.period = null;
+      if (e.day === undefined) e.day = null;
+    });
+    // NOTE: "None (...)" rows (the shared MDM lunch slot) are real timetable rows, so they are kept.
+    // Substitute lists filter those names out themselves (isValidSubstitutionTeacher).
+  }
+  if (data.lockedLessons) lockedLessons = data.lockedLessons;
+  if (data.dropdownOptions) dropdownOptions = data.dropdownOptions;
+  if (dropdownOptions && Array.isArray(dropdownOptions.teachers)) {
+    dropdownOptions.teachers = dropdownOptions.teachers.filter(isValidSubstitutionTeacher);
+  }
+  renderList();
+  populateDropdownLists();
+}
+
+// Puts a ready timetable on screen (shared by every "restore" path).
+function showRestoredSchedule(sch) {
+  schedule = { grid: sch.grid, periods: sch.periods, slots: sch.slots, lessonMinutes: sch.lessonMinutes };
+  syncLockStateOnGrid();
+  activeView = "consolidated";
+  document.getElementById("output-panel")?.classList.remove("hidden");
+  renderTimetables();
+  updateViewSelector();
+  populateSubstitutionDropdowns();
+}
+
+// Shows a stored timetable exactly as it was published/saved (no regeneration, so every phone matches).
+// Returns false when there is none, or when it no longer matches the entries.
+function restoreSchedule(data) {
+  const sch = data && data.schedule;
+  if (!sch || !sch.grid || !sch.slots || data.scheduleSig !== entriesSignature()) return false;
+  showRestoredSchedule(sch);
+  return true;
+}
+
+// Rebuilds the exact timetable from "Lock Current" data. Every lock records teacher, subject, class,
+// day and period, so a fully locked JSON IS a complete timetable (including auto-filled lessons and
+// both halves of every 80-minute block). Nothing is generated or randomised.
+function buildScheduleFromLocks(data) {
+  const all = Object.values(data.lockedLessons || {});
+  const locks = all.filter(l => l && l.teacher && l.subject && l.klass && DAYS.includes(l.day) && Number(l.period) >= 1);
+  if (!locks.length || locks.length < all.length * 0.95) return null;
+  const { periods, slots, lessonMinutes } = buildSlots();
+  if (locks.some(l => Number(l.period) > periods)) return null;
+
+  const grid = {};
+  DAYS.forEach(d => { grid[d] = {}; for (let p = 1; p <= periods; p++) grid[d][p] = []; });
+  const byKey = new Map();
+  entries.forEach(e => {
+    const k = getLessonKey(e.teacher, e.subject, e.klass);
+    if (!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k).push(e);
+  });
+  const candsOf = l => byKey.get(getLessonKey(l.teacher, l.subject, l.klass)) || [];
+  const posOf = l => getPosKey(l.teacher, l.subject, l.klass, l.day, Number(l.period));
+  const lockAt = new Map(locks.map(l => [posOf(l), l]));
+  const used = new Set();
+  const put = lesson => grid[lesson.day][lesson.period].push(lesson);
+  const starts = getDoubleStartPeriods();
+
+  // 1) fixed single lessons from the sheet (fixed period; a Day, if given, must match)
+  for (const l of locks) {
+    const p = Number(l.period);
+    const e = candsOf(l).find(c => !c.isDouble && c.period === p && (!c.day || c.day === l.day));
+    if (e) { put({ ...e, day: l.day, period: p, _fixed: true }); used.add(posOf(l)); }
+  }
+  // 2) 80-minute blocks: two consecutive locked periods of the same 80-min entry (never across lunch)
+  for (const l of locks) {
+    if (used.has(posOf(l))) continue;
+    const p = Number(l.period);
+    const dbl = candsOf(l).filter(c => c.isDouble);
+    if (!dbl.length || !starts.includes(p)) continue;
+    const next = lockAt.get(getPosKey(l.teacher, l.subject, l.klass, l.day, p + 1));
+    if (!next || used.has(posOf(next))) continue;
+    const e = dbl.find(c => c.day === l.day) || dbl[0];
+    put({ ...e, day: l.day, period: p });
+    put({ ...e, day: l.day, period: p + 1, isDoublePart: true });
+    used.add(posOf(l)); used.add(posOf(next));
+  }
+  // 3) everything else was an auto-filled lesson
+  for (const l of locks) {
+    if (used.has(posOf(l))) continue;
+    const c = candsOf(l);
+    const base = c.find(x => x.isDouble) || c[0];
+    if (base) put({ ...base, isDouble: false, isDoublePart: false, customLessons: null, days: null, day: l.day, period: Number(l.period), isFiller: true });
+    else put({ teacher: l.teacher, subject: l.subject, klass: l.klass, classTeacher: '', coClassTeacher: '', staffType: '', priority: 'light', isDouble: false, customLessons: null, days: null, locked: false, day: l.day, period: Number(l.period), isFiller: true });
+  }
+  return { grid, periods, slots, lessonMinutes };
+}
+
+// Locked-timetable fallback for JSON files that carry locks but no stored timetable (older exports).
+function restoreScheduleFromLocks(data) {
+  if (!data || data.schedule) return false;      // a stored timetable always takes priority
+  const built = buildScheduleFromLocks(data);
+  if (!built) return false;
+  showRestoredSchedule(built);
+  return true;
+}
+function restoreAnySchedule(data) { return restoreSchedule(data) || restoreScheduleFromLocks(data); }
 
 function loadFromLocalStorage() {
   try {
@@ -2231,24 +2359,9 @@ function loadFromLocalStorage() {
     if (saved) {
       const data = JSON.parse(saved);
       if (data.entries) {
-        entries = data.entries;
-        entries.forEach(e => {
-          if (!e.classTeacher) e.classTeacher = '';
-          if (!e.coClassTeacher) e.coClassTeacher = '';
-          if (e.period === undefined) e.period = null;
-          if (e.day === undefined) e.day = null;
-        });
-        // Purge stale "None (...)" placeholder rows saved from old data
-        entries = entries.filter(e => isValidSubstitutionTeacher(e.teacher));
+        applyDataObject(data);
+        showMessage(`Loaded ${entries.length} entries`, "ok");
       }
-      if (data.lockedLessons) lockedLessons = data.lockedLessons;
-      if (data.dropdownOptions) dropdownOptions = data.dropdownOptions;
-      if (dropdownOptions && Array.isArray(dropdownOptions.teachers)) {
-        dropdownOptions.teachers = dropdownOptions.teachers.filter(isValidSubstitutionTeacher);
-      }
-      renderList();
-      populateDropdownLists();
-      showMessage(`Loaded ${entries.length} entries`, "ok");
     }
   } catch(e) { console.warn('Load failed', e); }
   loadSubstitutionHistory();
@@ -4440,14 +4553,17 @@ function initDragDrop() {
 // EXPORT FUNCTIONS
 // ============================================
 function exportData() {
-  const data = JSON.stringify({ entries, lockedLessons, dropdownOptions, exportDate: new Date().toISOString() }, null, 2);
+  // The file the app loads for everyone: entries + locks + dropdowns + the finished timetable.
+  // Saved as default_data.json so it can be dropped straight into the app's folder.
+  if (!schedule) showMessage("Note: no timetable generated yet, so this file holds entries only. Generate first for a complete file.", "warn");
+  const data = JSON.stringify({ ...buildDataSnapshot(), exportDate: new Date().toISOString() }, null, 2);
   const blob = new Blob([data], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `timetable_backup_${new Date().toISOString().slice(0, 19)}.json`;
+  a.download = DATA_JSON_FILE;
   a.click();
   URL.revokeObjectURL(a.href);
-  showMessage("Exported!", "ok");
+  showMessage(`Exported ${DATA_JSON_FILE} - upload it to the app's folder to publish.`, "ok");
 }
 window.exportData = exportData;
 
@@ -6254,10 +6370,14 @@ document.getElementById("import-btn")?.addEventListener("click", () => {
           }
           populateDropdownLists();
           renderList();
-          saveToLocalStorage();
           schedule = null;
           document.getElementById("output-panel")?.classList.add("hidden");
-          showMessage(`Imported ${entries.length} entries from JSON`, "ok");
+          if (restoreAnySchedule(data)) {
+            showMessage(`Imported ${entries.length} entries and the saved/locked timetable from JSON`, "ok");
+          } else {
+            showMessage(`Imported ${entries.length} entries from JSON`, "ok");
+          }
+          saveToLocalStorage();
         } catch (err) {
           console.error(err);
           showMessage("Invalid JSON timetable file", "error");
@@ -6273,35 +6393,72 @@ document.getElementById("import-btn")?.addEventListener("click", () => {
 });
 
 // ============================================
-// LOAD DEFAULT DATA FROM REMOTE JSON (NEW USER)
+// STARTUP DATA LOADER
 // ============================================
-async function loadRemoteData() {
-    if (localStorage.getItem("timetableStudioData")) {
-        loadFromLocalStorage();
-        renderList();
-        setTimeout(() => {
-            if (entries.length > 0 && !schedule) {
-                generate();
-            }
-        }, 200);
-        return; 
-    }
+// Files the app looks for in the SAME folder as this page. Change a name here if you rename a file.
+const DATA_JSON_FILE = 'default_data.json';                   // exported with "Export" (entries + timetable)
+const DATA_EXCEL_FILE = 'timetable_import_editable_v2.xlsx';  // last-resort fallback when no JSON and nothing cached
 
-    try {
-        const response = await fetch('default_data.json');
-        const data = await response.json();
-        localStorage.setItem("timetableStudioData", JSON.stringify(data));
-        loadFromLocalStorage(); 
-        renderList();
-        setTimeout(() => {
-            if (entries.length > 0) {
-                generate(); 
-                showMessage("✅ Your timetable is ready!", "ok");
-            }
-        }, 250); 
-    } catch (err) {
-        console.warn("No default data found on server. Starting fresh.");
-    }
+async function fetchPublishedJson() {
+  try {
+    const res = await fetch(DATA_JSON_FILE + '?t=' + Date.now(), { cache: 'no-store' });   // never a stale copy
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data && Array.isArray(data.entries) && data.entries.length) ? data : null;
+  } catch (err) { return null; }
+}
+
+async function loadFromExcelFile() {
+  try {
+    const res = await fetch(DATA_EXCEL_FILE + '?t=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) return false;
+    const buf = await res.arrayBuffer();
+    importOptionsFromExcel(new File([buf], DATA_EXCEL_FILE), true);
+    for (let i = 0; i < 50 && entries.length === 0; i++) await new Promise(r => setTimeout(r, 100));   // import is asynchronous
+    if (entries.length > 0) { generate(); return true; }
+  } catch (err) { console.warn('Excel fallback failed', err); }
+  return false;
+}
+
+async function loadRemoteData() {
+  // Let the rest of the page finish initialising before anything is drawn.
+  await new Promise(r => setTimeout(r, 0));
+
+  const isAdmin = localStorage.getItem("timetableAdminMode") === "true";
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem("timetableStudioData") || "null"); } catch (e) {}
+  const hasCache = !!(cached && Array.isArray(cached.entries) && cached.entries.length);
+
+  // 1. Show the saved copy immediately so the page is never empty while the file loads.
+  if (hasCache) {
+    applyDataObject(cached);
+    restoreAnySchedule(cached);
+  }
+
+  // 2. An admin keeps their own working copy; they publish by exporting.
+  if (isAdmin && hasCache) {
+    if (!schedule && entries.length > 0) generate();
+    return;
+  }
+
+  // 3. Everyone else always gets the published JSON from this folder (the saved copy is only a fallback).
+  const data = await fetchPublishedJson();
+  if (data) {
+    try { localStorage.setItem("timetableStudioData", JSON.stringify({ ...data, timestamp: new Date().toISOString() })); } catch (e) {}
+    applyDataObject(data);
+    if (!restoreAnySchedule(data) && entries.length > 0) generate();
+    return;
+  }
+
+  // 4. JSON unreachable (offline): keep using the saved copy.
+  if (hasCache) {
+    if (!schedule && entries.length > 0) generate();
+    return;
+  }
+
+  // 5. Nothing cached and no JSON: try the Excel file, otherwise start empty.
+  const ok = await loadFromExcelFile();
+  if (!ok) console.warn("No default data found (JSON or Excel). Starting fresh.");
 }
 
 document.addEventListener("DOMContentLoaded", function() {
